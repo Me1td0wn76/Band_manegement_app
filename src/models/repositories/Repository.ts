@@ -1,14 +1,13 @@
 import type {
   ActivityInput,
   AppSnapshot,
-  BandInput,
+  AssignmentRow,
   EventInput,
   MemberCreateInput,
   MemberUpdateInput,
-  OnboardingInput,
-  Part,
   ProfileUpdateInput,
-  SlotAssignment,
+  RoleInput,
+  TimetableInput,
 } from '../types'
 
 export type RepositoryMode = 'supabase' | 'demo'
@@ -25,8 +24,8 @@ export interface Repository {
   signIn(email: string, password: string): Promise<void>
   signOut(): Promise<void>
   changePassword(newPassword: string): Promise<void>
-  /** 初回ログイン時の初期登録（パスワードの再設定とパートの登録） */
-  completeOnboarding(input: OnboardingInput): Promise<void>
+  /** 初回ログイン時の初期登録（パスワードの再設定） */
+  completeOnboarding(newPassword: string): Promise<void>
 
   // ---- 読み込み ----
   loadAll(): Promise<AppSnapshot>
@@ -38,22 +37,26 @@ export interface Repository {
   deleteMember(id: string): Promise<void>
   updateMyProfile(input: ProfileUpdateInput): Promise<void>
 
-  // ---- バンド ----
-  createBand(input: BandInput): Promise<string>
-  updateBand(id: string, input: BandInput): Promise<void>
-  deleteBand(id: string): Promise<void>
-
-  // ---- イベント ----
+  // ---- イベント・タイムテーブル ----
   createEvent(input: EventInput): Promise<string>
   updateEvent(id: string, input: EventInput): Promise<void>
   deleteEvent(id: string): Promise<void>
+  /** 出演順・演奏時間・転換・開演・終演予定をまとめて保存する */
+  saveTimetable(eventId: string, input: TimetableInput): Promise<void>
 
-  // ---- 役割の割り振り ----
-  /** 枠の割り当て・ロックを保存する（確定は解除される） */
-  saveAssignment(eventId: string, bandId: string, slots: SlotAssignment[]): Promise<void>
-  addSlot(eventId: string, bandId: string, part: Part, label: string): Promise<void>
-  removeSlot(slotId: string): Promise<void>
-  confirmAssignment(eventId: string, bandId: string): Promise<void>
+  // ---- 役割マスタ ----
+  createRole(input: RoleInput): Promise<void>
+  updateRole(id: string, input: RoleInput): Promise<void>
+  deleteRole(id: string): Promise<void>
+  setRoleSlots(eventId: string, roleId: string, slots: number): Promise<void>
+
+  // ---- 裏方の割り振り ----
+  /** イベントの割り当てを丸ごと置き換える（確定は解除される） */
+  saveAssignments(eventId: string, rows: AssignmentRow[]): Promise<void>
+  confirmAssignments(eventId: string): Promise<void>
+
+  // ---- 参加可否 ----
+  setExclusion(eventId: string, memberId: string, excluded: boolean, reason?: string | null): Promise<void>
 
   // ---- 活動ログ ----
   logActivity(input: ActivityInput): Promise<void>

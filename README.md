@@ -1,7 +1,6 @@
 # Riffboard — バンド管理アプリ
 
 イベント・メンバー・バンドの管理と、役割（パート）の自動割り振りを行う、数十人規模のバンド／サークル向けアプリです。
-デザインは Riffboard デザインシステム（https://claude.ai/artifact/3Dxj2rUyk4mM2nTLHfF9at）に従っています。
 
 - フロントエンド：React 19 + TypeScript + Vite（GitHub Pages で無料配信）
 - バックエンド：Supabase 無料プラン（PostgreSQL・認証・Edge Function）
