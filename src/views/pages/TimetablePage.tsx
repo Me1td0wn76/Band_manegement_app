@@ -104,12 +104,12 @@ function TimetableEditor({ event, choices, onSaved }: { event: LiveEvent; choice
   const members = indexById(snapshot.members)
   const roles = snapshot.roles
   const board = staffBoardOf(snapshot, event)
-  const staffNames = (roleId: string, itemId: string | null) =>
+  const staffIds = (roleId: string, itemId: string | null) =>
     board.cells
       .filter((c) => c.roleId === roleId && c.itemId === itemId)
       .map((c) => board.state[c.key]?.memberId)
       .filter((id): id is string => Boolean(id))
-      .map((id) => members.get(id)?.name ?? '?')
+  const staffNames = (roleId: string, itemId: string | null) => staffIds(roleId, itemId).map((id) => members.get(id)?.name ?? '?')
 
   const update = (key: string, patch: Partial<DraftItem>) => setItems((list) => list.map((i) => (i.key === key ? { ...i, ...patch } : i)))
   const move = (from: number, to: number) =>
@@ -211,7 +211,7 @@ function TimetableEditor({ event, choices, onSaved }: { event: LiveEvent; choice
     const it = row.item
     const isAct = it.kind === 'act'
     if (isAct) ordinal++
-    const mine = isAct && actRoles.some((r) => staffNames(r.id, it.id ?? '').includes(me.name))
+    const mine = isAct && Boolean(it.id) && actRoles.some((r) => staffIds(r.id, it.id).includes(me.id))
     rows.push(
       <li
         key={it.key}
@@ -242,7 +242,7 @@ function TimetableEditor({ event, choices, onSaved }: { event: LiveEvent; choice
         <div className="tt-main">
           {isAdmin ? (
             <div className="tt-edit">
-              {isAdmin && <Icon name="grip" size={16} className="tt-grip" />}
+              <Icon name="grip" size={16} className="tt-grip" />
               <input
                 className="tt-input tt-input--name"
                 value={it.name}
