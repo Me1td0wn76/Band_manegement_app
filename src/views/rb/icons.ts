@@ -1,8 +1,19 @@
-import type { Part } from '../../models/types'
-
 // Riffboard icon set — 24px grid, 1.75 stroke, round caps.（Riffboard デザインシステムのアイコン）
 // Each value is the inner markup of a <svg viewBox="0 0 24 24">.
 export const ICONS = {
+  camera:
+    '<path d="M4 8h3l1.6-2.5h6.8L17 8h3a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/>',
+  spotlight:
+    '<path d="M8.5 3h7l-1.4 5.5H9.9L8.5 3z"/><path d="M9.9 8.5L5 20.5h14L14.1 8.5"/><path d="M12 12.5v4"/>',
+  megaphone:
+    '<path d="M3.5 10v4h3l7.5 4.5v-13L6.5 10h-3z"/><path d="M17 9.5a3.5 3.5 0 0 1 0 5M19.5 7a7 7 0 0 1 0 10"/>',
+  stopwatch:
+    '<circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.5M9.5 2.5h5M12 2.5V6M18.3 6.7l1.6-1.6"/>',
+  sliders:
+    '<path d="M6 3.5v17M12 3.5v17M18 3.5v17"/><rect x="4" y="12.5" width="4" height="3" rx="1"/><rect x="10" y="6.5" width="4" height="3" rx="1"/><rect x="16" y="14.5" width="4" height="3" rx="1"/>',
+  coffee:
+    '<path d="M4 9h12v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9z"/><path d="M16 10.5h1.5a2.5 2.5 0 0 1 0 5H16M8 3.5c0 1 1 1.5 1 2.5s-1 1.5-1 2.5M12 3.5c0 1 1 1.5 1 2.5"/>',
+  'arrow-down': '<path d="M12 5v14M6 13l6 6 6-6"/>',
   guitar:
     '<path d="M14 10l6.5-6.5"/><path d="M18.6 2.2l3.2 3.2"/><path d="M12.2 9.3c-1.5-1.5-3.7-1.2-4.6.5-.4.7-1.1 1.2-1.9 1.3-1.8.3-3.1 1.8-3.1 3.6 0 2.9 2.8 5.7 5.7 5.7 1.8 0 3.3-1.3 3.6-3.1.1-.8.6-1.5 1.3-1.9 1.7-.9 2-3.1.5-4.6z"/><circle cx="8.6" cy="15.4" r="1.5"/>',
   bass:
@@ -71,14 +82,6 @@ export const ICONS = {
 } as const
 
 export type IconName = keyof typeof ICONS
-
-export const ROLE_META: Record<Part, { short: string; long: string; icon: IconName }> = {
-  vo: { short: 'Vo', long: 'ボーカル', icon: 'mic' },
-  gt: { short: 'Gt', long: 'ギター', icon: 'guitar' },
-  ba: { short: 'Ba', long: 'ベース', icon: 'bass' },
-  dr: { short: 'Dr', long: 'ドラム', icon: 'drums' },
-  key: { short: 'Key', long: 'キーボード', icon: 'keys' },
-}
 
 // The Riffboard mark: a pick with a waveform cut through it.
 export const MARK_PICK = 'M32 61C19 50 5 33 5 19 5 8.5 17 3 32 3s27 5.5 27 16c0 14-14 31-27 42z'

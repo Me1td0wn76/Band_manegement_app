@@ -18,8 +18,7 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
 } from 'react'
-import type { Part } from '../../models/types'
-import { ICONS, MARK_PICK, MARK_WAVE, ROLE_META, type IconName } from './icons'
+import { ICONS, MARK_PICK, MARK_WAVE, type IconName } from './icons'
 
 /** CSS カスタムプロパティを style に渡すための型 */
 export type CSSVars = CSSProperties & Record<`--${string}`, string | number | undefined>
@@ -412,7 +411,8 @@ export interface ChipOption {
   value: string
   label?: string
   icon?: IconName
-  role?: Part
+  /** アイコンと縁の色（CSS の色。役割の識別用） */
+  color?: string
 }
 export function ChipSelect({
   label,
@@ -439,22 +439,20 @@ export function ChipSelect({
       <div className="rb-chips">
         {options.map((o, i) => {
           const sel = value.includes(o.value)
-          const meta = o.role ? ROLE_META[o.role] : null
-          const iconName = o.icon ?? meta?.icon
           return (
             <button
               key={o.value}
               type="button"
-              className={cx('rb-chip', o.role && 'rb-chip--role')}
+              className={cx('rb-chip', o.color && 'rb-chip--role')}
               aria-pressed={sel}
-              style={{ '--i': i, '--rb-role': o.role ? `var(--role-${o.role})` : undefined } as CSSVars}
+              style={{ '--i': i, '--rb-role': o.color } as CSSVars}
               onClick={() => toggle(o.value)}
             >
               <span className="rb-chip__check">
                 <Icon name="check" size={14} strokeWidth={2.4} />
               </span>
-              {iconName && <Icon name={iconName} size={16} className="rb-chip__icon" />}
-              <span>{o.label ?? meta?.long ?? o.value}</span>
+              {o.icon && <Icon name={o.icon} size={16} className="rb-chip__icon" />}
+              <span>{o.label ?? o.value}</span>
             </button>
           )
         })}
@@ -463,23 +461,26 @@ export function ChipSelect({
   )
 }
 
-/* ---------------------------------------------------------------- RoleBadge */
+/* ---------------------------------------------------------------- RoleBadge（裏方の役割：アイコン + 名前。色だけで区別しない） */
 export function RoleBadge({
-  role,
-  long = false,
+  name,
+  icon,
+  color,
   size = 'md',
   className,
+  title,
 }: {
-  role: Part
-  long?: boolean
+  name: string
+  icon: IconName
+  color: string
   size?: 'sm' | 'md'
   className?: string
+  title?: string
 }) {
-  const m = ROLE_META[role] ?? ROLE_META.gt
   return (
-    <span className={cx('rb-role', `rb-role--${size}`, className)} style={{ '--rb-role': `var(--role-${role})` } as CSSVars} title={m.long}>
-      <Icon name={m.icon} size={size === 'sm' ? 14 : 16} />
-      <span>{long ? m.long : m.short}</span>
+    <span className={cx('rb-role', `rb-role--${size}`, className)} style={{ '--rb-role': color } as CSSVars} title={title ?? name}>
+      <Icon name={icon} size={size === 'sm' ? 14 : 16} />
+      <span>{name}</span>
     </span>
   )
 }
@@ -504,7 +505,7 @@ const STATUS: Record<BadgeStatus, { label: string; tone: string; icon?: IconName
   live: { label: 'LIVE', tone: 'live', dot: true },
   done: { label: '終了', tone: 'neutral', icon: 'check' },
   cancelled: { label: '中止', tone: 'red', icon: 'x' },
-  admin: { label: '管理者', tone: 'amber', icon: 'crown' },
+  admin: { label: '幹部', tone: 'amber', icon: 'crown' },
   member: { label: 'メンバー', tone: 'neutral', icon: 'users' },
   invited: { label: '招待中', tone: 'neutral', icon: 'mail' },
   conflict: { label: '重複', tone: 'red', icon: 'alert' },
@@ -536,27 +537,27 @@ const TINTS = ['amber', 'cyan', 'red'] as const
 export function Avatar({
   name = '',
   size = 40,
-  role,
+  badge,
   online,
   className,
 }: {
   name?: string
   size?: number
-  role?: Part
+  /** 右下に出す小さなアイコン（例：幹部の王冠） */
+  badge?: { icon: IconName; color: string }
   online?: boolean
   className?: string
 }) {
   const tint = TINTS[hash(name) % TINTS.length]
-  const meta = role ? ROLE_META[role] : null
   return (
     <span className={cx('rb-avatar', `rb-avatar--${tint}`, className)} style={{ '--rb-av': `${size}px` } as CSSVars} title={name}>
       <svg className="rb-avatar__pick" viewBox="0 0 64 64" aria-hidden="true">
         <path d={MARK_PICK} />
       </svg>
       <span className="rb-avatar__txt">{initials(name)}</span>
-      {meta && (
-        <span className="rb-avatar__role" style={{ '--rb-role': `var(--role-${role})` } as CSSVars}>
-          <Icon name={meta.icon} size={Math.max(10, Math.round(size * 0.28))} strokeWidth={2} />
+      {badge && (
+        <span className="rb-avatar__role" style={{ '--rb-role': badge.color } as CSSVars}>
+          <Icon name={badge.icon} size={Math.max(10, Math.round(size * 0.28))} strokeWidth={2} />
         </span>
       )}
       {online && <span className="rb-avatar__on" role="img" aria-label="オンライン" />}
