@@ -6,7 +6,7 @@ import { Icon, Logo, type IconName } from '../components/Icon'
 import { useConfirm } from '../components/Feedback'
 import { Avatar, Badge } from '../components/ui'
 import { APP_ROLE } from '../format'
-import { Link, useLocation } from '../router'
+import { Link, navigate, useLocation } from '../router'
 
 interface NavItem {
   to: string
@@ -32,6 +32,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   // 画面遷移したらモバイルのメニューを閉じる
   const close = () => setOpen(false)
+  // 次にログインした人が前の人の画面から始まらないよう、トップに戻してからログアウト
+  const logout = () => {
+    void signOut().then(() => navigate('/', { replace: true }))
+  }
 
   const items = NAV.filter((n) => !n.adminOnly || isAdmin)
 
@@ -110,7 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Icon name="key" size={15} />
               アカウント
             </Link>
-            <button type="button" className="sidebar-link" onClick={() => signOut()}>
+            <button type="button" className="sidebar-link" onClick={logout}>
               <Icon name="logout" size={15} />
               ログアウト
             </button>
