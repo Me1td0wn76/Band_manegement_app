@@ -1,177 +1,115 @@
-import type { AppSnapshot, AssignmentDraft, AssignmentMode } from '../models/types'
-import { excludedOf, indexById, performersOf, slotsForEvent } from './selectors'
+import type { Part } from '../models/types'
 
-export interface AutoAssignOptions {
-  /** regenerate: ロックされていない割り当てを作り直す / fill: 既存を残して不足分のみ埋める */
-  mode: AssignmentMode
-  /** 出演バンドのメンバーはできるだけ避ける（足りなければ割り当てる） */
-  avoidPerformers: boolean
-  /** 1イベントで1人が担当できる役割数の上限 */
-  maxRolesPerEvent: number
-  /** 同点時の並び順を決める乱数シード（再生成で別案を出す） */
-  seed: number
+export interface AssignRules {
+  /** 担当パートを優先：メンバーの登録パートに合う枠から埋める */
+  preferRole: boolean
+  /** 出演回数を平準化：今月の出演が少ない人を優先する */
+  balance: boolean
+  /** 兼任を許可：1人が複数の枠に入れる */
+  allowDouble: boolean
+  /** バンドの編成メンバーを優先する */
+  preferBand: boolean
 }
 
-export interface ProposedAssignment extends AssignmentDraft {
-  /** 既存の割り当て（保存時に変更されない） */
-  kept: boolean
-  /** 出演者を割り当てた場合 true */
-  performer: boolean
+export const DEFAULT_RULES: AssignRules = { preferRole: true, balance: true, allowDouble: false, preferBand: true }
+
+export interface AssignSlot {
+  id: string
+  part: Part
 }
 
-export interface Shortage {
-  eventId: string
-  roleId: string
-  missing: number
+export interface AssignCandidate {
+  id: string
+  parts: Part[]
+  /** 今月の出演数 */
+  load: number
+  /** このバンドの編成メンバーか */
+  regular: boolean
 }
 
-export interface AutoAssignResult {
-  proposals: ProposedAssignment[]
-  shortages: Shortage[]
-  /** 割り振り前の担当回数（対象イベントの作り直し分を除く） */
-  loadBefore: Map<string, number>
-  loadAfter: Map<string, number>
-}
-
-export const DEFAULT_OPTIONS: AutoAssignOptions = {
-  mode: 'regenerate',
-  avoidPerformers: true,
-  maxRolesPerEvent: 1,
-  seed: 1,
-}
-
-/** 再現性のある簡易乱数 */
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-const inc = (map: Map<string, number>, key: string, by = 1) => map.set(key, (map.get(key) ?? 0) + by)
+export type Assignment = Record<string, string | null>
 
 /**
- * 役割の自動割り振り。
+ * 役割の自動割り振り（Riffboard の RoleAssigner と同じ規則）。
  *
- * 方針（貪欲法）:
- * 1. ロック済み（fill モードでは既存すべて）の割り当ては保持する
- * 2. 参加不可のメンバー・1イベントの上限に達したメンバーは候補から外す
- * 3. 担当回数の少ない人 → その役割の経験が少ない人 → ランダム の順で選ぶ
- * 4. 出演者を避ける設定なら、非出演者で埋まらない分だけ出演者から選ぶ
+ * ランダムな貪欲法を何度も試して、いちばん良い案を残す：
+ *  1. 埋まった枠が多い
+ *  2. （編成優先なら）編成メンバーが自分のパートに入っている
+ *  3. （パート優先なら）担当パートが合う人が入っている
+ *  4. （平準化なら）出演数の合計が少ない
+ * ロックした枠はそのまま残す。結果は毎回少し変わる。
  */
-export function autoAssign(snapshot: AppSnapshot, eventIds: string[], options: AutoAssignOptions): AutoAssignResult {
-  const rand = mulberry32(options.seed)
-  const eventsById = indexById(snapshot.events)
-  const targets = eventIds
-    .map((id) => eventsById.get(id))
-    .filter((e): e is NonNullable<typeof e> => Boolean(e) && e!.status !== 'cancelled')
-    .sort((a, b) => a.date.localeCompare(b.date) || (a.startTime ?? '').localeCompare(b.startTime ?? ''))
-  const targetIds = new Set(targets.map((e) => e.id))
-  const activeMembers = snapshot.members.filter((m) => m.active)
-
-  // 対象外イベントの割り当てを「これまでの負担」として数える
-  const load = new Map<string, number>()
-  const roleLoad = new Map<string, number>() // key: memberId|roleId
-  for (const a of snapshot.assignments) {
-    const ev = eventsById.get(a.eventId)
-    if (!ev || ev.status === 'cancelled' || targetIds.has(a.eventId)) continue
-    inc(load, a.memberId)
-    inc(roleLoad, `${a.memberId}|${a.roleId}`)
+export function autoAssign(
+  slots: AssignSlot[],
+  members: AssignCandidate[],
+  current: Assignment,
+  locked: Record<string, boolean>,
+  rules: AssignRules = DEFAULT_RULES,
+  trials = 160,
+  random: () => number = Math.random,
+): Assignment {
+  const plays = (m: AssignCandidate, s: AssignSlot) => m.parts.includes(s.part)
+  const open = slots.filter((s) => !locked[s.id])
+  const base: Record<string, number> = {}
+  for (const s of slots) {
+    const id = current[s.id]
+    if (locked[s.id] && id) base[id] = (base[id] ?? 0) + 1
   }
-
-  const proposals: ProposedAssignment[] = []
-  const shortages: Shortage[] = []
-
-  // 保持する割り当てを先に負担に加える（後続イベントの公平性のため）
-  const keptByEvent = new Map<string, typeof snapshot.assignments>()
-  for (const ev of targets) {
-    const kept = snapshot.assignments.filter(
-      (a) => a.eventId === ev.id && (options.mode === 'fill' || a.locked),
-    )
-    keptByEvent.set(ev.id, kept)
-    for (const a of kept) {
-      inc(load, a.memberId)
-      inc(roleLoad, `${a.memberId}|${a.roleId}`)
+  const shuffle = <T>(a: T[]): T[] => {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
     }
+    return a
   }
-  const loadBefore = new Map(load)
+  const playersOf = (s: AssignSlot) => members.filter((m) => plays(m, s)).length
 
-  for (const ev of targets) {
-    const kept = keptByEvent.get(ev.id) ?? []
-    const excluded = excludedOf(snapshot, ev.id)
-    const performers = performersOf(snapshot, ev.id)
-    const perEvent = new Map<string, number>()
-    const inRole = new Set<string>()
-    for (const a of kept) {
-      inc(perEvent, a.memberId)
-      inRole.add(`${a.memberId}|${a.roleId}`)
-      proposals.push({
-        eventId: ev.id,
-        roleId: a.roleId,
-        memberId: a.memberId,
-        kept: true,
-        performer: performers.has(a.memberId),
-      })
-    }
-
-    // イベントごとに同点時の順序をシャッフル
-    const tieBreak = new Map(activeMembers.map((m) => [m.id, rand()]))
-
-    // 必要人数の多い役割から埋める（同数なら表示順）
-    const slotList = slotsForEvent(snapshot, ev.id)
-      .filter((s) => s.slots > 0)
-      .sort((a, b) => b.slots - a.slots || a.role.sortOrder - b.role.sortOrder)
-
-    for (const { role, slots } of slotList) {
-      let need = slots - kept.filter((a) => a.roleId === role.id).length
-      if (need <= 0) continue
-
-      const eligible = activeMembers.filter(
-        (m) =>
-          !excluded.has(m.id) &&
-          (perEvent.get(m.id) ?? 0) < options.maxRolesPerEvent &&
-          !inRole.has(`${m.id}|${role.id}`),
-      )
-      const score = (id: string) =>
-        [load.get(id) ?? 0, roleLoad.get(`${id}|${role.id}`) ?? 0, perEvent.get(id) ?? 0, tieBreak.get(id) ?? 0]
-      const byFairness = (a: { id: string }, b: { id: string }) => {
-        const sa = score(a.id)
-        const sb = score(b.id)
-        for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return sa[i] - sb[i]
-        return 0
+  let best: Assignment | null = null
+  let bestScore = -Infinity
+  for (let t = 0; t < trials; t++) {
+    const next: Assignment = { ...current }
+    const used: Record<string, number> = { ...base }
+    let fit = 0
+    let regularFit = 0
+    let load = 0
+    // 弾ける人が少ないパートから埋める
+    const order = shuffle(open.slice()).sort((a, b) => playersOf(a) - playersOf(b))
+    for (const s of order) {
+      const free = members.filter((m) => rules.allowDouble || !used[m.id])
+      let pool = free
+      if (rules.preferRole) {
+        const fitting = free.filter((m) => plays(m, s))
+        if (fitting.length) pool = fitting
       }
-
-      const pools = options.avoidPerformers
-        ? [eligible.filter((m) => !performers.has(m.id)), eligible.filter((m) => performers.has(m.id))]
-        : [eligible]
-
-      for (const pool of pools) {
-        const sorted = [...pool].sort(byFairness)
-        for (const m of sorted) {
-          if (need <= 0) break
-          proposals.push({ eventId: ev.id, roleId: role.id, memberId: m.id, kept: false, performer: performers.has(m.id) })
-          inc(load, m.id)
-          inc(roleLoad, `${m.id}|${role.id}`)
-          inc(perEvent, m.id)
-          inRole.add(`${m.id}|${role.id}`)
-          need--
-        }
+      if (rules.preferBand) {
+        const regulars = pool.filter((m) => m.regular && plays(m, s))
+        if (regulars.length) pool = regulars
       }
-
-      if (need > 0) shortages.push({ eventId: ev.id, roleId: role.id, missing: need })
+      if (!pool.length) {
+        next[s.id] = null
+        continue
+      }
+      shuffle(pool)
+      if (rules.balance) pool.sort((a, b) => a.load + (used[a.id] ?? 0) * 2 - (b.load + (used[b.id] ?? 0) * 2))
+      const k = rules.balance ? Math.min(pool.length, t % 3 === 0 ? 1 : 2) : pool.length
+      const pick = pool[Math.floor(random() * k)]
+      next[s.id] = pick.id
+      used[pick.id] = (used[pick.id] ?? 0) + 1
+      if (plays(pick, s)) fit++
+      if (pick.regular && plays(pick, s)) regularFit++
+      load += pick.load + (used[pick.id] - 1) * 3
+    }
+    const filled = open.filter((s) => next[s.id]).length
+    const score =
+      filled * 1000 +
+      (rules.preferBand ? regularFit * 200 : 0) +
+      (rules.preferRole ? fit * 100 : 0) -
+      (rules.balance ? load : 0) +
+      random() * 0.5
+    if (score > bestScore) {
+      bestScore = score
+      best = next
     }
   }
-
-  return { proposals, shortages, loadBefore, loadAfter: load }
-}
-
-/** 提案の担当回数を再計算（プレビューで手動差し替えした後に使う） */
-export function recomputeLoad(loadBefore: Map<string, number>, proposals: ProposedAssignment[]): Map<string, number> {
-  const load = new Map(loadBefore)
-  for (const p of proposals) if (!p.kept) inc(load, p.memberId)
-  return load
+  return best ?? { ...current }
 }
