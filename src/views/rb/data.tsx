@@ -1,26 +1,28 @@
 /**
- * Riffboard のデータ表示コンポーネント（EventTable / MemberCard / BandCard）。
+ * Riffboard のデータ表示コンポーネント（EventTable / MemberCard）。
  */
 import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from 'react'
-import type { Part } from '../../models/types'
 import type { DisplayStatus } from '../../controllers/selectors'
-import { Avatar, Button, DateStub, EmptyState, Icon, IconButton, RoleBadge, StatusBadge, VuMeter, cx, prefersReduced, type CSSVars } from './core'
+import { Avatar, Button, DateStub, EmptyState, Icon, IconButton, StatusBadge, VuMeter, cx, prefersReduced, type CSSVars } from './core'
 
 /* ---------------------------------------------------------------- EventTable */
 export interface EventRow {
   id: string
   date: string
   time: string | null
-  openTime: string | null
+  /** "18:00–21:15" */
+  range: string
   title: string
   venue: string | null
-  bands: string[]
+  acts: string[]
   status: DisplayStatus
   capacity: number | null
   sold: number
+  /** 裏方の割り当て状況 */
+  staff: { filled: number; total: number; issues: number }
 }
 
-type SortKey = 'date' | 'title' | 'sold' | 'status'
+type SortKey = 'date' | 'title' | 'sold' | 'status' | 'staff'
 
 export function EventTable({
   events,
@@ -45,7 +47,17 @@ export function EventTable({
 }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'date', dir: 1 })
   const val = (e: EventRow, k: SortKey): string | number =>
-    k === 'date' ? `${e.date} ${e.time ?? ''}` : k === 'sold' ? (e.capacity ? e.sold / e.capacity : -1) : e[k] ?? ''
+    k === 'date'
+      ? `${e.date} ${e.time ?? ''}`
+      : k === 'sold'
+        ? e.capacity
+          ? e.sold / e.capacity
+          : -1
+        : k === 'staff'
+          ? e.staff.total
+            ? e.staff.filled / e.staff.total
+            : -1
+          : e[k]
   const rows = sortable
     ? events.slice().sort((a, b) => {
         const av = val(a, sort.key)
@@ -74,7 +86,8 @@ export function EventTable({
             {th('date', '日付')}
             {th('title', 'イベント')}
             <th scope="col">会場</th>
-            <th scope="col">出演バンド</th>
+            <th scope="col">出演</th>
+            {th('staff', '裏方')}
             {th('sold', '集客')}
             {th('status', '状態')}
             {(onEdit || onDelete) && (
@@ -97,7 +110,7 @@ export function EventTable({
               </td>
               <td>
                 <div className="rb-cell-title">{ev.title}</div>
-                <div className="rb-cell-sub">{ev.openTime ? `開場 ${ev.openTime}` : '開場 —'}</div>
+                <div className="rb-cell-sub">{ev.range}</div>
               </td>
               <td>
                 <span className="rb-cell-venue">
@@ -107,16 +120,36 @@ export function EventTable({
               </td>
               <td>
                 <div className="rb-cell-bands">
-                  {ev.bands.length ? (
-                    ev.bands.map((b) => (
-                      <span key={b} className="rb-chip-mini">
-                        {b}
-                      </span>
-                    ))
+                  {ev.acts.length ? (
+                    <>
+                      {ev.acts.slice(0, 3).map((b, k) => (
+                        <span key={`${b}${k}`} className="rb-chip-mini">
+                          {b}
+                        </span>
+                      ))}
+                      {ev.acts.length > 3 && <span className="rb-cell-sub">ほか{ev.acts.length - 3}組</span>}
+                    </>
                   ) : (
-                    <span className="rb-cell-sub">—</span>
+                    <span className="rb-cell-sub">未定</span>
                   )}
                 </div>
+              </td>
+              <td>
+                {ev.staff.total ? (
+                  <div className="rb-cap">
+                    <VuMeter level={ev.staff.filled / ev.staff.total} segments={10} size="sm" ariaLabel={`${ev.title}の裏方の割り当て`} />
+                    <span className="rb-mono">
+                      {ev.staff.filled}/{ev.staff.total}
+                    </span>
+                    {ev.staff.issues > 0 && (
+                      <StatusBadge status="conflict" size="sm">
+                        要確認 {ev.staff.issues}
+                      </StatusBadge>
+                    )}
+                  </div>
+                ) : (
+                  <span className="rb-cell-sub">—</span>
+                )}
               </td>
               <td>
                 {ev.capacity ? (
@@ -174,31 +207,30 @@ export function EventTable({
   )
 }
 
-/* ---------------------------------------------------------------- MemberCard */
+/* ---------------------------------------------------------------- MemberCard（バックステージパス） */
 export interface MemberCardData {
   id: string
   name: string
   kana: string | null
   email: string
-  parts: Part[]
-  bands: string[]
   isAdmin: boolean
   invited: boolean
   inactive: boolean
+  /** 今月の担当回数 */
   load: number
+  /** 次の担当（例："12/02 定期ライブ・照明"） */
+  next: string | null
   isMe: boolean
 }
 
 export function MemberCard({
   member: m,
   onEdit,
-  onClick,
   className,
   style,
 }: {
   member: MemberCardData
   onEdit?: (m: MemberCardData) => void
-  onClick?: (m: MemberCardData) => void
   className?: string
   style?: CSSVars
 }) {
@@ -221,16 +253,15 @@ export function MemberCard({
   return (
     <article
       ref={ref}
-      className={cx('rb-member', m.isAdmin && 'rb-member--admin', onClick && 'is-clickable', m.inactive && 'is-inactive', className)}
+      className={cx('rb-member', m.isAdmin && 'rb-member--admin', m.inactive && 'is-inactive', className)}
       style={style as CSSProperties}
       onPointerMove={move}
       onPointerLeave={leave}
-      onClick={onClick ? () => onClick(m) : undefined}
     >
       <span className="rb-member__shine" aria-hidden="true" />
-      <span className="rb-member__pass">{m.isAdmin ? 'ALL ACCESS' : m.invited ? 'GUEST' : 'BACKSTAGE'}</span>
+      <span className="rb-member__pass">{m.isAdmin ? 'ALL ACCESS' : m.invited ? 'GUEST' : 'CREW'}</span>
       <div className="rb-member__top">
-        <Avatar name={m.name} size={56} role={m.parts[0]} online={m.isMe} />
+        <Avatar name={m.name} size={56} online={m.isMe} badge={m.isAdmin ? { icon: 'crown', color: 'var(--amber)' } : undefined} />
         {m.inactive ? (
           <StatusBadge status="inactive" size="sm" />
         ) : m.isAdmin ? (
@@ -246,23 +277,18 @@ export function MemberCard({
         </h3>
         {m.kana && <div className="rb-member__kana">{m.kana}</div>}
       </div>
-      <div className="rb-member__roles">
-        {m.parts.map((r) => (
-          <RoleBadge key={r} role={r} size="sm" long />
-        ))}
-      </div>
       <dl className="rb-member__meta">
-        <div>
-          <dt>バンド</dt>
-          <dd>{m.bands.length ? m.bands.join(' / ') : '—'}</dd>
-        </div>
         <div>
           <dt>メール</dt>
           <dd className="rb-mono">{m.email || '—'}</dd>
         </div>
         <div>
-          <dt>出演</dt>
+          <dt>担当</dt>
           <dd className="rb-mono">今月 {m.load} 回</dd>
+        </div>
+        <div>
+          <dt>次回</dt>
+          <dd>{m.next ?? '—'}</dd>
         </div>
       </dl>
       {onEdit && (
@@ -280,99 +306,6 @@ export function MemberCard({
           </Button>
         </div>
       )}
-    </article>
-  )
-}
-
-/* ---------------------------------------------------------------- BandCard */
-const KNOBS = ['GAIN', 'BASS', 'MID', 'TREB', 'VOL']
-
-/** バンド名から決まるノブの角度（装飾） */
-function knobsFor(name: string): number[] {
-  let h = 7
-  for (const c of name) h = (h * 33 + c.charCodeAt(0)) >>> 0
-  return KNOBS.map((_, i) => 40 + ((h >> (i * 5)) % 55))
-}
-
-export interface BandCardData {
-  id: string
-  name: string
-  genre: string | null
-  active: boolean
-  members: { id: string; name: string; part: Part }[]
-  nextEvent: string | null
-}
-
-export function BandCard({
-  band: b,
-  onEdit,
-  onClick,
-  className,
-  style,
-}: {
-  band: BandCardData
-  onEdit?: (b: BandCardData) => void
-  onClick?: (b: BandCardData) => void
-  className?: string
-  style?: CSSVars
-}) {
-  const knobs = knobsFor(b.name)
-  return (
-    <article className={cx('rb-band', onClick && 'is-clickable', className)} style={style as CSSProperties} onClick={onClick ? () => onClick(b) : undefined}>
-      <div className="rb-band__grille">
-        <span className="rb-band__plate">{b.name}</span>
-      </div>
-      <div className="rb-band__panel" aria-hidden="true">
-        <div className="rb-band__knobs">
-          {KNOBS.map((k, i) => (
-            <span key={k} className="rb-knob" style={{ '--i': i, '--rot': knobs[i] } as CSSVars}>
-              <span className="rb-knob__cap" />
-              <span className="rb-knob__lbl">{k}</span>
-            </span>
-          ))}
-        </div>
-        <span className={cx('rb-band__power', !b.active && 'is-off')} />
-      </div>
-      <div className="rb-band__body">
-        <div className="rb-band__meta">
-          <span className="rb-eyebrow">{b.genre || 'BAND'}</span>
-          <span className="rb-mono">{b.members.length}人</span>
-        </div>
-        {b.members.length ? (
-          <ul className="rb-band__members">
-            {b.members.map((m, i) => (
-              <li key={m.id} style={{ '--i': i } as CSSVars}>
-                <Avatar name={m.name} size={28} />
-                <span className="rb-band__mname">{m.name}</span>
-                <RoleBadge role={m.part} size="sm" />
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="rb-muted rb-small">メンバーが未登録です</p>
-        )}
-        <div className="rb-band__next">
-          {b.nextEvent ? (
-            <span className="rb-band__nexttext">
-              <Icon name="calendar" size={16} />
-              次回 {b.nextEvent}
-            </span>
-          ) : (
-            <span className="rb-band__nexttext rb-muted">次回の出演予定はありません</span>
-          )}
-          {onEdit && (
-            <IconButton
-              icon="edit"
-              label={`${b.name}を編集`}
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation()
-                onEdit(b)
-              }}
-            />
-          )}
-        </div>
-      </div>
     </article>
   )
 }
