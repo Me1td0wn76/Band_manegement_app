@@ -23,7 +23,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const confirm = useConfirm()
   const { path } = useLocation()
   const [theme, setTheme] = useTheme()
-  const [open, setOpen] = useState(false)
+  // モバイルのメニューは開いた画面にいる間だけ開く（どんな方法で移動しても閉じる）
+  const [openAt, setOpenAt] = useState<string | null>(null)
+  const open = openAt === path
+  const setOpen = (v: boolean) => setOpenAt(v ? path : null)
   const nav = useRef<HTMLElement>(null)
   const [ind, setInd] = useState<{ top: number; height: number } | null>(null)
 
