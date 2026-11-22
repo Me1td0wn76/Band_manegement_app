@@ -1,72 +1,79 @@
-import type { AppRole, EventStatus } from '../models/types'
-import type { Tone } from './components/ui'
+import type { BandEvent } from '../models/types'
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-/** "2026-11-22" → "2026/11/22（日）" */
-export function formatDate(iso: string, withWeekday = true): string {
+function parse(iso: string): Date | null {
   const [y, m, d] = iso.split('-').map(Number)
-  if (!y || !m || !d) return iso
-  const date = new Date(y, m - 1, d)
-  const base = `${y}/${String(m).padStart(2, '0')}/${String(d).padStart(2, '0')}`
-  return withWeekday ? `${base}（${WEEKDAYS[date.getDay()]}）` : base
+  if (!y || !m || !d) return null
+  return new Date(y, m - 1, d)
 }
 
-export function formatShortDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  if (!y || !m || !d) return iso
-  const date = new Date(y, m - 1, d)
-  return `${m}/${d}（${WEEKDAYS[date.getDay()]}）`
+/** "2026-12-05" → "12/05（土）" */
+export function formatMd(iso: string, withWeekday = true): string {
+  const d = parse(iso)
+  if (!d) return iso
+  const base = `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  return withWeekday ? `${base}（${WEEKDAYS[d.getDay()]}）` : base
 }
 
-export function formatTimeRange(start: string | null, end: string | null): string {
-  if (!start && !end) return '—'
-  return `${start ?? ''}〜${end ?? ''}`
+/** "2026-12-05" → "2026/12/05（土）" */
+export function formatYmd(iso: string): string {
+  const d = parse(iso)
+  if (!d) return iso
+  return `${d.getFullYear()}/${formatMd(iso)}`
 }
 
-export function formatDateTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(
-    d.getHours(),
-  ).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+/** 開場・開演の表記 */
+export function formatDoors(event: Pick<BandEvent, 'openTime' | 'startTime'>): string {
+  const parts = []
+  if (event.openTime) parts.push(`開場 ${event.openTime}`)
+  if (event.startTime) parts.push(`開演 ${event.startTime}`)
+  return parts.join(' / ') || '時間未定'
 }
 
-/** 今日からの日数（"あと3日" 表示用） */
-export function daysFromToday(iso: string): number {
-  const [y, m, d] = iso.split('-').map(Number)
-  const target = new Date(y, m - 1, d)
+export function daysUntil(iso: string): number {
+  const d = parse(iso)
+  if (!d) return 0
   const now = new Date()
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-  return Math.round((target.getTime() - today.getTime()) / 86_400_000)
+  return Math.round((d.getTime() - today.getTime()) / 86_400_000)
 }
 
-export function relativeDay(iso: string): string {
-  const n = daysFromToday(iso)
-  if (n === 0) return '今日'
-  if (n === 1) return '明日'
-  if (n > 0) return `あと${n}日`
-  return `${-n}日前`
+export function formatClock(iso: string): string {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export const EVENT_STATUS: Record<EventStatus, { label: string; tone: Tone }> = {
-  scheduled: { label: '予定', tone: 'info' },
-  completed: { label: '終了', tone: 'neutral' },
-  cancelled: { label: '中止', tone: 'danger' },
+/** 「3分前」「昨日」などの相対表記 */
+export function formatAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime()
+  const min = Math.floor(diff / 60_000)
+  if (min < 1) return 'たった今'
+  if (min < 60) return `${min}分前`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h}時間前`
+  const d = Math.floor(h / 24)
+  if (d === 1) return '昨日'
+  if (d < 30) return `${d}日前`
+  const date = new Date(iso)
+  return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`
 }
 
-export const APP_ROLE: Record<AppRole, { label: string; tone: Tone }> = {
-  admin: { label: '管理者', tone: 'accent' },
-  member: { label: 'メンバー', tone: 'neutral' },
+/** 履歴の時刻表記（今日なら時刻のみ） */
+export function formatLogTime(iso: string): string {
+  const d = new Date(iso)
+  const now = new Date()
+  const sameDay = d.toDateString() === now.toDateString()
+  return sameDay ? formatClock(iso) : `${d.getMonth() + 1}/${d.getDate()} ${formatClock(iso)}`
 }
 
-export const PART_SUGGESTIONS = ['Vo', 'Gt', 'Ba', 'Dr', 'Key', 'Cho', 'Sax', 'Tp', 'DJ', 'PA']
+export const GENRES = ['Rock', 'Garage Rock', 'J-Rock', 'Post Rock', 'Shoegaze', 'Synth Punk', 'City Pop', 'Jazz', 'Pops', 'Metal', 'Acoustic']
 
 /** 初期パスワードの生成（紛らわしい文字を除く） */
 export function generatePassword(length = 10): string {
-  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
   const values = crypto.getRandomValues(new Uint32Array(length))
-  return Array.from(values, (v) => chars[v % chars.length]).join('')
+  return `${Array.from(values, (v) => chars[v % chars.length]).join('')}!`
 }
 
 export function downloadCsv(filename: string, rows: (string | number)[][]): void {
@@ -87,3 +94,11 @@ export function downloadCsv(filename: string, rows: (string | number)[][]): void
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 export const MIN_PASSWORD_LENGTH = 8
+
+/** パスワードの条件（初期登録画面の条件リスト） */
+export const PASSWORD_RULES: [label: string, test: (pw: string) => boolean][] = [
+  ['8文字以上', (pw) => pw.length >= MIN_PASSWORD_LENGTH],
+  ['数字を含む', (pw) => /\d/.test(pw)],
+  ['大文字と小文字', (pw) => /[a-z]/.test(pw) && /[A-Z]/.test(pw)],
+  ['記号を含む', (pw) => /[^A-Za-z0-9]/.test(pw)],
+]
