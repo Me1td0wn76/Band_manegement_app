@@ -1,122 +1,155 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import type { ReactNode } from 'react'
+import { AuthProvider, useAuth } from './controllers/AuthController'
+import { DataProvider, useDataState } from './controllers/DataController'
+import { FeedbackProvider } from './views/components/Feedback'
+import { Logo } from './views/components/Icon'
+import { Alert, Button, EmptyState } from './views/components/ui'
+import { AppShell } from './views/layout/AppShell'
+import { AccountPage, PasswordForm } from './views/pages/AccountPage'
+import { AssignmentPage } from './views/pages/AssignmentPage'
+import { BandsPage } from './views/pages/BandsPage'
+import { DashboardPage } from './views/pages/DashboardPage'
+import { EventDetailPage } from './views/pages/EventDetailPage'
+import { EventsPage } from './views/pages/EventsPage'
+import { LoginPage } from './views/pages/LoginPage'
+import { MemberDetailPage } from './views/pages/MemberDetailPage'
+import { MembersPage } from './views/pages/MembersPage'
+import { MyPage } from './views/pages/MyPage'
+import { Forbidden, NotFound } from './views/pages/NotFound'
+import { Redirect, matchPath, useLocation } from './views/router'
 
-function App() {
-  const [count, setCount] = useState(0)
-
+export default function App() {
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    <FeedbackProvider>
+      <AuthProvider>
+        <AuthGate />
+      </AuthProvider>
+    </FeedbackProvider>
   )
 }
 
-export default App
+function FullScreen({ children }: { children: ReactNode }) {
+  return <div className="fullscreen">{children}</div>
+}
+
+function Loading() {
+  return (
+    <FullScreen>
+      <div className="loading">
+        <Logo size={36} />
+        <span className="spinner spinner-lg" aria-label="読み込み中" />
+      </div>
+    </FullScreen>
+  )
+}
+
+/** ログイン状態で画面を切り替える */
+function AuthGate() {
+  const { state } = useAuth()
+  if (state.status === 'loading') return <Loading />
+  if (state.status === 'signedOut') return <LoginPage />
+  // ユーザーが変わったらデータを読み込み直す
+  return (
+    <DataProvider key={state.userId}>
+      <DataGate userId={state.userId} />
+    </DataProvider>
+  )
+}
+
+/** データの読み込み状況・アカウント状態で画面を切り替える */
+function DataGate({ userId }: { userId: string }) {
+  const { state, reload } = useDataState()
+  const { signOut } = useAuth()
+
+  if (state.status === 'loading') return <Loading />
+  if (state.status === 'error') {
+    return (
+      <FullScreen>
+        <div className="card narrow-card">
+          <EmptyState icon="alert" title="データを読み込めませんでした">
+            <p className="muted small">{state.error}</p>
+            <div className="button-row">
+              <Button onClick={() => signOut()}>ログアウト</Button>
+              <Button variant="primary" icon="refresh" onClick={() => reload().catch(() => {})}>
+                再読み込み
+              </Button>
+            </div>
+          </EmptyState>
+        </div>
+      </FullScreen>
+    )
+  }
+
+  const me = state.snapshot.members.find((m) => m.id === userId)
+  if (!me || !me.active) {
+    return (
+      <FullScreen>
+        <div className="card narrow-card">
+          <EmptyState icon="lock" title={me ? 'このアカウントは無効化されています' : 'メンバー情報が見つかりません'}>
+            <p className="muted small">管理者に連絡してください。</p>
+            <Button onClick={() => signOut()}>ログアウト</Button>
+          </EmptyState>
+        </div>
+      </FullScreen>
+    )
+  }
+
+  if (me.mustChangePassword) {
+    return (
+      <FullScreen>
+        <div className="card narrow-card padded">
+          <div className="brand brand-center">
+            <Logo size={32} />
+          </div>
+          <h1 className="narrow-title">パスワードを変更してください</h1>
+          <Alert tone="info">初回ログインのため、管理者が設定した初期パスワードを新しいパスワードに変更してください。</Alert>
+          <PasswordForm submitLabel="変更して始める" />
+          <button type="button" className="text-link center-link" onClick={() => signOut()}>
+            ログアウト
+          </button>
+        </div>
+      </FullScreen>
+    )
+  }
+
+  return (
+    <AppShell>
+      <Routes isAdmin={me.appRole === 'admin'} />
+    </AppShell>
+  )
+}
+
+interface RouteDef {
+  path: string
+  adminOnly?: boolean
+  render: (params: Record<string, string>) => ReactNode
+}
+
+const ROUTES: RouteDef[] = [
+  { path: '/dashboard', adminOnly: true, render: () => <DashboardPage /> },
+  { path: '/me', render: () => <MyPage /> },
+  { path: '/events', render: () => <EventsPage /> },
+  { path: '/events/:id', render: (p) => <EventDetailPage key={p.id} id={p.id} /> },
+  { path: '/members', render: () => <MembersPage /> },
+  { path: '/members/:id', render: (p) => <MemberDetailPage key={p.id} id={p.id} /> },
+  { path: '/bands', render: () => <BandsPage /> },
+  { path: '/assign', adminOnly: true, render: () => <AssignmentPage /> },
+  { path: '/account', render: () => <AccountPage /> },
+]
+
+function Routes({ isAdmin }: { isAdmin: boolean }) {
+  const { path } = useLocation()
+
+  if (path === '/') {
+    // 管理者はダッシュボード、メンバーはマイページをトップにする
+    return <Redirect to={isAdmin ? '/dashboard' : '/me'} />
+  }
+
+  for (const route of ROUTES) {
+    const params = matchPath(route.path, path)
+    if (!params) continue
+    if (route.adminOnly && !isAdmin) return <Forbidden />
+    return route.render(params)
+  }
+  return <NotFound />
+}
