@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../../controllers/AuthController'
 import { useData } from '../../controllers/DataController'
-import { bandNamesOf, indexById } from '../../controllers/selectors'
+import { bandNamesOf } from '../../controllers/selectors'
 import { PARTS, type Part } from '../../models/types'
 import { useAction } from '../feedback'
 import { Avatar, Button, ChipSelect, Icon, Logo, StageBackdrop, StatusBadge, TextField, VuMeter, type CSSVars } from '../rb/core'
@@ -14,7 +14,7 @@ const STEPS = ['ログイン情報', 'パスワード', 'パート']
  * 招待されたメンバーの初期登録。初回ログイン時に、管理者が設定した初期パスワードを
  * 自分のパスワードに変え、担当パートを登録する。
  */
-export function OnboardingPage() {
+export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
   const { snapshot, me, actions } = useData()
   const { signOut } = useAuth()
   const { run, pending } = useAction()
@@ -34,8 +34,6 @@ export function OnboardingPage() {
   const bands = bandNamesOf(snapshot, me.id)
   // 招待した人：最初の管理者
   const inviter = snapshot.members.find((m) => m.appRole === 'admin' && m.id !== me.id)
-  const membersById = indexById(snapshot.members)
-  void membersById
 
   const submit = async () => {
     if (!valid) return
@@ -73,7 +71,7 @@ export function OnboardingPage() {
                 iconRight="chevron-right"
                 onClick={() => {
                   navigate('/dashboard', { replace: true })
-                  window.location.reload()
+                  onFinish()
                 }}
               >
                 ダッシュボードへ
