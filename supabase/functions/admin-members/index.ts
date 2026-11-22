@@ -16,6 +16,7 @@ const corsHeaders = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
+const PARTS = ['vo', 'gt', 'ba', 'dr', 'key']
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -68,21 +69,23 @@ Deno.serve(async (req) => {
       const password = typeof body.password === 'string' ? body.password : ''
       const name = str(body.name)
       const appRole = body.appRole === 'admin' ? 'admin' : 'member'
+      const parts = Array.isArray(body.parts) ? body.parts.filter((p): p is string => PARTS.includes(p as string)) : []
       if (!name) return json({ error: '名前を入力してください' }, 400)
+      if (parts.length === 0) return json({ error: 'パートを1つ以上選んでください' }, 400)
       if (!email || !EMAIL_PATTERN.test(email)) return json({ error: 'メールアドレスの形式が正しくありません' }, 400)
       if (password.length < MIN_PASSWORD_LENGTH) {
-        return json({ error: `パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください` }, 400)
+        return json({ error: `初期パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください` }, 400)
       }
 
       const { data, error } = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
-        user_metadata: { name, part: str(body.part), must_change_password: true },
+        user_metadata: { name, kana: str(body.kana), must_change_password: true },
       })
       if (error || !data.user) {
         const message = /already|registered|exists/i.test(error?.message ?? '')
-          ? 'このメールアドレスは既に登録されています'
+          ? 'このメールアドレスは登録済みです'
           : (error?.message ?? 'ユーザーを作成できませんでした')
         return json({ error: message }, 400)
       }
@@ -92,7 +95,8 @@ Deno.serve(async (req) => {
         .from('profiles')
         .update({
           name,
-          part: str(body.part),
+          kana: str(body.kana),
+          parts,
           note: str(body.note),
           app_role: appRole,
           must_change_password: true,
@@ -113,7 +117,7 @@ Deno.serve(async (req) => {
       const password = typeof body.password === 'string' ? body.password : null
       if (email && !EMAIL_PATTERN.test(email)) return json({ error: 'メールアドレスの形式が正しくありません' }, 400)
       if (password !== null && password.length < MIN_PASSWORD_LENGTH) {
-        return json({ error: `パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください` }, 400)
+        return json({ error: `初期パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください` }, 400)
       }
       if (!email && password === null) return json({ error: '変更内容がありません' }, 400)
 
