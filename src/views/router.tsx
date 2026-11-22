@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from 'react'
+import { useEffect, useSyncExternalStore, type AnchorHTMLAttributes, type MouseEvent } from 'react'
 
 /**
  * GitHub Pages ではサーバー側のリライトが使えないため、ハッシュ（#/path）でルーティングする。
@@ -63,4 +63,9 @@ export function Link({ to, onClick, ...props }: LinkProps) {
     }
   }
   return <a href={`#${to}`} onClick={handleClick} {...props} />
+}
+
+export function Redirect({ to }: { to: string }) {
+  useEffect(() => navigate(to, { replace: true }), [to])
+  return null
 }
