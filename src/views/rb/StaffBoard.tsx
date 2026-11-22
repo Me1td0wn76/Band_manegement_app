@@ -281,7 +281,7 @@ export function StaffBoard({
             flags.length > 0 && 'is-conflict',
             confirmed && m && 'is-confirmed',
             reel && 'is-rolling',
-            landed[c.key] && 'is-landed',
+            Boolean(landed[c.key]) && 'is-landed',
           )}
           style={{ '--rb-role': colorOf(c.roleId) } as CSSVars}
           draggable={!!m && !busy}
@@ -424,7 +424,7 @@ export function StaffBoard({
               {eventRoles.map((r) => (
                 <div key={r.id} className="sb-eventrole">
                   <div className="sb-rolehead">
-                    <RoleBadge name={r.name} icon={r.icon as never} color={colorOf(r.id)} />
+                    <RoleBadge name={r.name} icon={r.icon} color={colorOf(r.id)} />
                     {r.adminOnly && (
                       <span className="sb-adminonly">
                         <Icon name="crown" size={12} />
@@ -458,7 +458,7 @@ export function StaffBoard({
                     {actRoles.map((r) => (
                       <th key={r.id} scope="col">
                         <div className="sb-colhead">
-                          <RoleBadge name={r.name} icon={r.icon as never} color={colorOf(r.id)} size="sm" />
+                          <RoleBadge name={r.name} icon={r.icon} color={colorOf(r.id)} size="sm" />
                           {r.adminOnly && <Icon name="crown" size={12} title="幹部のみ" />}
                           {stepper(r)}
                         </div>

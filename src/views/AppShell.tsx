@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../controllers/AuthController'
 import { useData } from '../controllers/DataController'
-import { assignTodoCount, todayISO, upcomingEvents } from '../controllers/selectors'
+import { staffTodoCount, todayISO, upcomingEvents } from '../controllers/selectors'
 import { LocalRepository, repository } from '../models/repositories'
 import { useConfirm } from './feedback'
 import { Avatar, Icon, IconButton, Logo, StatusBadge, Topbar, cx, type CSSVars } from './rb/core'
@@ -32,17 +32,18 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const today = todayISO()
   const soon = upcomingEvents(snapshot, today).filter((e) => e.date <= addDays(today, 7)).length
-  const todo = isAdmin ? assignTodoCount(snapshot, today) : 0
+  const todo = isAdmin ? staffTodoCount(snapshot, today) : 0
 
   const items: NavItem[] = [
-    { to: '/dashboard', label: 'ダッシュボード', icon: 'dashboard' },
+    { to: '/dashboard', label: isAdmin ? 'ダッシュボード' : 'マイページ', icon: 'dashboard' },
     { to: '/events', label: 'イベント', icon: 'calendar', badge: soon || null },
-    { to: '/bands', label: 'バンド', icon: 'amp' },
+    { to: '/timetable', label: 'タイムテーブル', icon: 'table' },
     { to: '/members', label: 'メンバー', icon: 'users' },
-    { to: '/assign', label: '役割の割り振り', icon: 'shuffle', adminOnly: true, badge: todo || null },
+    { to: '/assign', label: '裏方の割り振り', icon: 'shuffle', adminOnly: true, badge: todo || null },
+    { to: '/roles', label: '役割の設定', icon: 'knob', adminOnly: true },
     { to: '/permissions', label: '権限設定', icon: 'crown', adminOnly: true },
   ]
-  // 管理者だけの項目はメンバーには表示しない（無効表示ではなく非表示）
+  // 幹部（管理者）だけの項目はメンバーには表示しない（無効表示ではなく非表示）
   const visible = items.filter((i) => !i.adminOnly || isAdmin)
   const main = visible.filter((i) => !i.adminOnly)
   const admin = visible.filter((i) => i.adminOnly)
@@ -146,7 +147,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
 
         <div className="rb-sidebar__user">
-          <Avatar name={me.name} size={36} role={me.parts[0]} online />
+          <Avatar name={me.name} size={36} online badge={isAdmin ? { icon: 'crown', color: 'var(--amber)' } : undefined} />
           <div className="rb-sidebar__who">
             <Link to="/account" className="rb-sidebar__name app-userlink" onClick={close}>
               {me.name}
