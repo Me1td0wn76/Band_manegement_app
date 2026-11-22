@@ -1,51 +1,36 @@
 import { useEffect, useState } from 'react'
 import { useData } from '../../controllers/DataController'
 import {
-  bandsOfEvent,
+  actsOf,
   displayStatus,
   indexById,
   monthOf,
   openSlotCount,
-  slotStats,
+  scheduleOf,
+  staffStats,
+  timeRangeOf,
   todayISO,
   upcomingEvents,
 } from '../../controllers/selectors'
-import type { ActivityKind, AppSnapshot, BandEvent } from '../../models/types'
+import { fmtMin } from '../../controllers/timetable'
+import type { ActivityKind } from '../../models/types'
 import { Page } from '../AppShell'
+import { eventTicker, toEventRow } from '../eventRows'
 import { Avatar, Button, Card, EmptyState, Icon, StatCard, StatusBadge, VuMeter, type CSSVars } from '../rb/core'
-import { EventTable, type EventRow } from '../rb/data'
+import { EventTable } from '../rb/data'
 import type { IconName } from '../rb/icons'
-import { daysUntil, formatAgo, formatDoors, formatMd } from '../format'
+import { daysUntil, formatAgo, formatMd } from '../format'
 import { navigate } from '../router'
 
 const KIND_ICON: Record<ActivityKind, IconName> = {
   event: 'calendar',
+  timetable: 'table',
   member: 'user-plus',
-  band: 'amp',
+  role: 'knob',
   assign: 'shuffle',
   onboarding: 'check',
   profile: 'edit',
-}
-
-export function toEventRow(snapshot: AppSnapshot, e: BandEvent, today = todayISO()): EventRow {
-  return {
-    id: e.id,
-    date: e.date,
-    time: e.startTime,
-    openTime: e.openTime,
-    title: e.title,
-    venue: e.venue,
-    bands: bandsOfEvent(snapshot, e.id).map((b) => b.name),
-    status: displayStatus(e, today),
-    capacity: e.capacity,
-    sold: e.sold,
-  }
-}
-
-export function eventTicker(snapshot: AppSnapshot): string[] {
-  return upcomingEvents(snapshot)
-    .slice(0, 5)
-    .map((e) => `${formatMd(e.date, false)} ${e.title}${e.venue ? ` @ ${e.venue}` : ''}${e.startTime ? ` ${e.startTime}` : ''}`)
+  availability: 'x',
 }
 
 function useNow(): number {
@@ -80,45 +65,44 @@ function Countdown({ target }: { target: number }) {
   )
 }
 
+/** 幹部（管理者）用ダッシュボード */
 export function DashboardPage() {
   const { snapshot, me } = useData()
   const today = todayISO()
+  const now = new Date()
   const month = monthOf(today)
-  const lastMonth = monthOf(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().slice(0, 10))
+  const lastMonth = monthOf(new Date(now.getFullYear(), now.getMonth() - 1, 15).toISOString().slice(0, 10))
   const members = indexById(snapshot.members)
   const events = indexById(snapshot.events)
-  const bands = indexById(snapshot.bands)
 
   const upcoming = upcomingEvents(snapshot, today)
   const next = upcoming[0]
   const countable = snapshot.events.filter((e) => e.status !== 'cancelled')
   const eventsThisMonth = countable.filter((e) => monthOf(e.date) === month).length
   const eventsLastMonth = countable.filter((e) => monthOf(e.date) === lastMonth).length
-  const activeMembers = snapshot.members.filter((m) => m.active)
-  const admins = activeMembers.filter((m) => m.appRole === 'admin').length
-  const joinedThisMonth = activeMembers.filter((m) => monthOf(m.createdAt.slice(0, 10)) === month).length
+  const crew = snapshot.members.filter((m) => m.active)
+  const leads = crew.filter((m) => m.appRole === 'admin').length
+  const joinedThisMonth = crew.filter((m) => monthOf(m.createdAt.slice(0, 10)) === month).length
 
-  const assignRows = upcoming
-    .flatMap((ev) => bandsOfEvent(snapshot, ev.id).map((band) => ({ ev, band, ...slotStats(snapshot, ev.id, band.id) })))
-    .slice(0, 6)
-
+  const statusRows = upcoming.slice(0, 6).map((ev) => ({ ev, ...staffStats(snapshot, ev) }))
+  const first = me.name.split(/\s+/)[0]
   const days = next ? daysUntil(next.date) : 0
   const subtitle = next
     ? days === 0
-      ? `おかえりなさい、${me.name.split(/\s+/)[0]}さん。今日は「${next.title}」の本番です。`
-      : `おかえりなさい、${me.name.split(/\s+/)[0]}さん。次のライブまで あと${days}日です。`
-    : `おかえりなさい、${me.name.split(/\s+/)[0]}さん。予定されているライブはまだありません。`
+      ? `おかえりなさい、${first}さん。今日は「${next.title}」の本番です。`
+      : `おかえりなさい、${first}さん。次のライブまで あと${days}日です。`
+    : `おかえりなさい、${first}さん。予定されているライブはまだありません。`
 
+  const nextSchedule = next ? scheduleOf(snapshot, next) : null
   const nextTarget = next ? new Date(`${next.date}T${next.startTime ?? '00:00'}:00`).getTime() : 0
-  const nextBands = next ? bandsOfEvent(snapshot, next.id) : []
-  const now = new Date()
+  const ticker = eventTicker(snapshot)
 
   return (
     <Page
       eyebrow={`Admin · ${now.getFullYear()}年${now.getMonth() + 1}月`}
       title="ダッシュボード"
       subtitle={subtitle}
-      ticker={upcoming.length ? eventTicker(snapshot) : undefined}
+      ticker={ticker.length ? ticker : undefined}
       actions={
         <>
           <Button icon="user-plus" onClick={() => navigate('/members')}>
@@ -131,44 +115,23 @@ export function DashboardPage() {
       }
     >
       <div className="db-stats">
+        <StatCard label="Events" sublabel="今月のイベント" value={eventsThisMonth} unit="本" icon="calendar" delta={eventsThisMonth - eventsLastMonth} />
         <StatCard
-          label="Events"
-          sublabel="今月のイベント"
-          value={eventsThisMonth}
-          unit="本"
-          icon="calendar"
-          delta={eventsThisMonth - eventsLastMonth}
-        />
-        <StatCard
-          label="Members"
-          sublabel={`登録メンバー（管理者 ${admins}）`}
-          value={activeMembers.length}
+          label="Crew"
+          sublabel={`裏方メンバー（幹部 ${leads}）`}
+          value={crew.length}
           unit="人"
           icon="users"
           delta={joinedThisMonth}
           deltaLabel="今月の登録"
           style={{ '--i': 1 } as CSSVars}
         />
-        <StatCard
-          label="Bands"
-          sublabel="活動中のバンド"
-          value={snapshot.bands.filter((b) => b.active).length}
-          unit="組"
-          icon="amp"
-          style={{ '--i': 2 } as CSSVars}
-        />
-        <StatCard
-          label="Open slots"
-          sublabel="未割り当ての枠"
-          value={openSlotCount(snapshot, today)}
-          unit="枠"
-          icon="shuffle"
-          style={{ '--i': 3 } as CSSVars}
-        />
+        <StatCard label="Upcoming" sublabel="今後のライブ" value={upcoming.length} unit="本" icon="table" style={{ '--i': 2 } as CSSVars} />
+        <StatCard label="Open slots" sublabel="未割り当ての裏方の枠" value={openSlotCount(snapshot, today)} unit="枠" icon="shuffle" style={{ '--i': 3 } as CSSVars} />
       </div>
 
       <div className="db-grid">
-        {next ? (
+        {next && nextSchedule ? (
           <Card
             eyebrow={days === 0 ? 'Live today' : 'Next gig'}
             title={next.title}
@@ -185,7 +148,8 @@ export function DashboardPage() {
                     <Icon name="calendar" size={16} />
                   </dt>
                   <dd>
-                    {formatMd(next.date)} {formatDoors(next)}
+                    {formatMd(next.date)} {next.openTime ? `開場 ${next.openTime} / ` : ''}
+                    {timeRangeOf(snapshot, next)}
                   </dd>
                 </div>
                 <div>
@@ -196,9 +160,12 @@ export function DashboardPage() {
                 </div>
                 <div>
                   <dt>
-                    <Icon name="amp" size={16} />
+                    <Icon name="note" size={16} />
                   </dt>
-                  <dd>{nextBands.map((b) => b.name).join('、') || '出演バンド未定'}</dd>
+                  <dd>
+                    {actsOf(snapshot, next.id).length}組・転換 {next.changeoverMinutes}分
+                    {nextSchedule.diff != null && nextSchedule.diff > 0 && <span className="app-danger-text">（終演予定を{nextSchedule.diff}分オーバー）</span>}
+                  </dd>
                 </div>
               </dl>
               {next.capacity ? (
@@ -212,10 +179,10 @@ export function DashboardPage() {
               ) : null}
               <div className="db-actions">
                 <Button variant="primary" icon="shuffle" onClick={() => navigate(`/assign?event=${next.id}`)}>
-                  割り振りを開く
+                  裏方を割り振る
                 </Button>
-                <Button variant="ghost" icon="edit" onClick={() => navigate(`/events?edit=${next.id}`)}>
-                  編集
+                <Button variant="ghost" icon="table" onClick={() => navigate(`/timetable?event=${next.id}`)}>
+                  タイムテーブル
                 </Button>
               </div>
             </div>
@@ -236,8 +203,8 @@ export function DashboardPage() {
         )}
 
         <Card
-          eyebrow="Assign status"
-          title="割り振り状況"
+          eyebrow="Staff status"
+          title="裏方の割り振り状況"
           actions={
             <Button size="sm" variant="ghost" iconRight="chevron-right" onClick={() => navigate('/assign')}>
               開く
@@ -245,19 +212,19 @@ export function DashboardPage() {
           }
           style={{ '--i': 3 } as CSSVars}
         >
-          {assignRows.length === 0 ? (
-            <p className="rb-muted rb-small">割り振りが必要な出演はありません。</p>
+          {statusRows.length === 0 ? (
+            <p className="rb-muted rb-small">割り振りが必要なライブはありません。</p>
           ) : (
             <ul className="db-assign">
-              {assignRows.map((a, i) => (
-                <li key={`${a.ev.id}:${a.band.id}`} style={{ '--i': i } as CSSVars}>
-                  <button type="button" className="db-assign__link" onClick={() => navigate(`/assign?event=${a.ev.id}&band=${a.band.id}`)}>
+              {statusRows.map((a, i) => (
+                <li key={a.ev.id} style={{ '--i': i } as CSSVars}>
+                  <button type="button" className="db-assign__link" onClick={() => navigate(`/assign?event=${a.ev.id}`)}>
                     <div className="db-assign__top">
                       <span className="rb-mono rb-muted">{formatMd(a.ev.date, false)}</span>
-                      <b>{a.band.name}</b>
-                      {a.conflicts > 0 ? (
+                      <b>{a.ev.title}</b>
+                      {a.issues > 0 ? (
                         <StatusBadge status="conflict" size="sm">
-                          重複 {a.conflicts}
+                          要確認 {a.issues}
                         </StatusBadge>
                       ) : a.confirmed ? (
                         <StatusBadge status="confirmed" size="sm">
@@ -270,12 +237,7 @@ export function DashboardPage() {
                       ) : null}
                     </div>
                     <div className="db-assign__bar">
-                      <VuMeter
-                        level={a.total ? a.filled / a.total : 0}
-                        segments={Math.max(6, a.total * 3)}
-                        size="sm"
-                        ariaLabel={`${a.band.name}の割り当て`}
-                      />
+                      <VuMeter level={a.total ? a.filled / a.total : 0} segments={Math.min(24, Math.max(8, a.total))} size="sm" ariaLabel={`${a.ev.title}の裏方の割り当て`} />
                       <span className="rb-mono">
                         {a.filled}/{a.total}
                       </span>
@@ -294,15 +256,13 @@ export function DashboardPage() {
             <ol className="db-feed">
               {snapshot.activities.slice(0, 6).map((a, i) => {
                 const who = a.actorId ? members.get(a.actorId)?.name : undefined
-                const context = [a.eventId && events.get(a.eventId)?.title, a.bandId && bands.get(a.bandId)?.name]
-                  .filter(Boolean)
-                  .join('・')
+                const ctx = a.eventId && (a.kind === 'assign' || a.kind === 'timetable') ? events.get(a.eventId)?.title : undefined
                 return (
                   <li key={a.id} style={{ '--i': i } as CSSVars}>
                     <Avatar name={who ?? '?'} size={30} />
                     <div>
                       <b>{who ?? '削除されたメンバー'}</b> {a.text}
-                      {a.kind === 'assign' && context && <span className="rb-muted">（{context}）</span>}
+                      {ctx && <span className="rb-muted">（{ctx}）</span>}
                       <div className="rb-mono rb-muted db-when">
                         <Icon name={KIND_ICON[a.kind]} size={12} />
                         {formatAgo(a.createdAt)}
@@ -330,7 +290,7 @@ export function DashboardPage() {
           events={upcoming.slice(0, 6).map((e) => toEventRow(snapshot, e, today))}
           sortable={false}
           onEdit={(ev) => navigate(`/events?edit=${ev.id}`)}
-          onRowClick={(ev) => navigate(`/assign?event=${ev.id}`)}
+          onRowClick={(ev) => navigate(`/timetable?event=${ev.id}`)}
           emptyTitle="今後のイベントはありません"
           emptyAction={
             <Button variant="primary" icon="plus" onClick={() => navigate('/events?new=1')}>
@@ -339,6 +299,7 @@ export function DashboardPage() {
           }
         />
       </section>
+      {nextSchedule && <span className="rb-sr">終演予定 {fmtMin(nextSchedule.end)}</span>}
     </Page>
   )
 }
