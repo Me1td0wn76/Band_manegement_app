@@ -1,9 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { useData } from '../../controllers/DataController'
-import { PARTS, type Part } from '../../models/types'
 import { Page } from '../AppShell'
 import { useAction } from '../feedback'
-import { Button, Card, ChipSelect, Icon, StatusBadge, TextField, VuMeter, type CSSVars } from '../rb/core'
+import { Button, Card, StatusBadge, TextField, VuMeter, type CSSVars } from '../rb/core'
 import { MIN_PASSWORD_LENGTH, PASSWORD_RULES } from '../format'
 import { navigate } from '../router'
 
@@ -12,8 +11,7 @@ export function AccountPage() {
   const { run, pending } = useAction()
   const [name, setName] = useState(me.name)
   const [kana, setKana] = useState(me.kana ?? '')
-  const [parts, setParts] = useState<Part[]>(me.parts)
-  const [pErr, setPErr] = useState<Partial<Record<'name' | 'parts', string>>>({})
+  const [nameErr, setNameErr] = useState<string | null>(null)
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
   const [pwErr, setPwErr] = useState<string | null>(null)
@@ -22,12 +20,12 @@ export function AccountPage() {
 
   const saveProfile = async (e: FormEvent) => {
     e.preventDefault()
-    const er: typeof pErr = {}
-    if (!name.trim()) er.name = '名前を入力してください'
-    if (!parts.length) er.parts = 'パートを1つ以上選んでください'
-    setPErr(er)
-    if (Object.keys(er).length) return
-    await run(() => actions.updateMyProfile({ name: name.trim(), kana: kana.trim() || null, parts }), 'プロフィールを更新しました')
+    if (!name.trim()) {
+      setNameErr('名前を入力してください')
+      return
+    }
+    setNameErr(null)
+    await run(() => actions.updateMyProfile({ name: name.trim(), kana: kana.trim() || null }), 'プロフィールを更新しました')
   }
 
   const savePassword = async (e: FormEvent) => {
@@ -51,10 +49,10 @@ export function AccountPage() {
     <Page
       eyebrow={`${isAdmin ? 'Admin' : 'Member'} · Account`}
       title="アカウント"
-      subtitle="名前・担当パート・パスワードを変更できます。"
+      subtitle="名前とパスワードを変更できます。"
       actions={
         <Button variant="ghost" icon="calendar" onClick={() => navigate('/me')}>
-          自分の出演予定
+          自分の担当予定
         </Button>
       }
     >
@@ -66,17 +64,10 @@ export function AccountPage() {
               <StatusBadge status={isAdmin ? 'admin' : 'member'} size="sm" />
             </div>
             <div className="app-two">
-              <TextField label="名前" required icon="users" value={name} onChange={(e) => setName(e.target.value)} error={pErr.name} />
+              <TextField label="名前" required icon="users" value={name} onChange={(e) => setName(e.target.value)} error={nameErr} />
               <TextField label="ローマ字" value={kana} onChange={(e) => setKana(e.target.value)} />
             </div>
-            <ChipSelect label="担当パート" value={parts} onChange={(v) => setParts(v as Part[])} options={PARTS.map((p) => ({ value: p, role: p }))} />
-            {pErr.parts && (
-              <p className="mb-err">
-                <Icon name="alert" size={14} />
-                {pErr.parts}
-              </p>
-            )}
-            <p className="rb-muted rb-small">メールアドレスと権限の変更は管理者に依頼してください。</p>
+            <p className="rb-muted rb-small">メールアドレスと権限の変更は幹部に依頼してください。</p>
             <div>
               <Button type="submit" variant="primary" icon="check" loading={pending}>
                 プロフィールを保存
@@ -86,18 +77,14 @@ export function AccountPage() {
         </Card>
         <Card eyebrow="Password" title="パスワード変更" style={{ '--i': 2 } as CSSVars}>
           <form className="mb-form" onSubmit={savePassword} noValidate>
-            <TextField
-              label="新しいパスワード"
-              required
-              icon="key"
-              type="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              autoComplete="new-password"
-            />
+            <TextField label="新しいパスワード" required icon="key" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="new-password" />
             <div className="ob-strength">
               <VuMeter level={Math.max(0.05, score / 5)} segments={10} size="sm" ariaLabel="パスワードの強さ" />
-              <span className="rb-small rb-muted">{PASSWORD_RULES.filter(([, f]) => !f(pw)).map(([t]) => t).join('・') || '十分な強さです'}</span>
+              <span className="rb-small rb-muted">
+                {PASSWORD_RULES.filter(([, f]) => !f(pw))
+                  .map(([t]) => t)
+                  .join('・') || '十分な強さです'}
+              </span>
             </div>
             <TextField
               label="新しいパスワード（確認）"

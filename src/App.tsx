@@ -6,7 +6,6 @@ import { AppShell } from './views/AppShell'
 import { FeedbackProvider } from './views/feedback'
 import { AccountPage } from './views/pages/AccountPage'
 import { AssignPage } from './views/pages/AssignPage'
-import { BandsPage } from './views/pages/BandsPage'
 import { DashboardPage } from './views/pages/DashboardPage'
 import { EventsPage } from './views/pages/EventsPage'
 import { LoginPage } from './views/pages/LoginPage'
@@ -15,6 +14,8 @@ import { MyPage } from './views/pages/MyPage'
 import { Forbidden, NotFound } from './views/pages/NotFound'
 import { OnboardingPage } from './views/pages/OnboardingPage'
 import { PermissionsPage } from './views/pages/PermissionsPage'
+import { RolesPage } from './views/pages/RolesPage'
+import { TimetablePage } from './views/pages/TimetablePage'
 import { Button, Card, EmptyState, Loader, StageBackdrop } from './views/rb/core'
 import { Redirect, matchPath, navigate, useLocation } from './views/router'
 
@@ -49,7 +50,7 @@ function AuthGate() {
   if (state.status === 'signedOut') return <LoginPage />
   // ユーザーが変わったらデータを読み込み直す
   return (
-    <DataProvider key={state.userId}>
+    <DataProvider key={state.userId} userId={state.userId}>
       <DataGate userId={state.userId} />
     </DataProvider>
   )
@@ -134,13 +135,14 @@ interface RouteDef {
 }
 
 const ROUTES: RouteDef[] = [
-  // 管理者はダッシュボード、メンバーはマイページ（同じメニュー項目）
+  // 幹部はダッシュボード、メンバーはマイページ（同じメニュー項目）
   { path: '/dashboard', render: (_, isAdmin) => (isAdmin ? <DashboardPage /> : <MyPage />) },
   { path: '/me', render: () => <MyPage /> },
   { path: '/events', render: () => <EventsPage /> },
-  { path: '/bands', render: () => <BandsPage /> },
+  { path: '/timetable', render: () => <TimetablePage /> },
   { path: '/members', render: () => <MembersPage /> },
   { path: '/assign', adminOnly: true, render: () => <AssignPage /> },
+  { path: '/roles', adminOnly: true, render: () => <RolesPage /> },
   { path: '/permissions', adminOnly: true, render: () => <PermissionsPage /> },
   { path: '/account', render: () => <AccountPage /> },
 ]

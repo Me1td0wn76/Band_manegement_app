@@ -26,8 +26,8 @@ export function Forbidden() {
       <Card>
         <EmptyState
           icon="lock"
-          title="この画面は管理者のみ使えます"
-          message="登録・割り振りは管理者のみです。必要なときは管理者に依頼してください。"
+          title="この画面は幹部のみ使えます"
+          message="登録・割り振りは幹部のみです。必要なときは幹部に依頼してください。"
           action={
             <Button variant="primary" icon="dashboard" onClick={() => navigate('/dashboard')}>
               ダッシュボードへ

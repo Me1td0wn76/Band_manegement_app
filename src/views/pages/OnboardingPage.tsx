@@ -1,18 +1,17 @@
 import { useState } from 'react'
 import { useAuth } from '../../controllers/AuthController'
 import { useData } from '../../controllers/DataController'
-import { bandNamesOf } from '../../controllers/selectors'
-import { PARTS, type Part } from '../../models/types'
+import { dutiesOf } from '../../controllers/selectors'
 import { useAction } from '../feedback'
-import { Avatar, Button, ChipSelect, Icon, Logo, StageBackdrop, StatusBadge, TextField, VuMeter, type CSSVars } from '../rb/core'
-import { PASSWORD_RULES, formatYmd } from '../format'
+import { Avatar, Button, Icon, Logo, StageBackdrop, StatusBadge, TextField, VuMeter, type CSSVars } from '../rb/core'
+import { PASSWORD_RULES, formatMd, formatYmd } from '../format'
 import { navigate } from '../router'
 
-const STEPS = ['ログイン情報', 'パスワード', 'パート']
+const STEPS = ['ログイン情報', 'パスワード', 'はじめる']
 
 /**
- * 招待されたメンバーの初期登録。初回ログイン時に、管理者が設定した初期パスワードを
- * 自分のパスワードに変え、担当パートを登録する。
+ * 招待されたメンバーの初期登録。初回ログイン時に、幹部が設定した初期パスワードを
+ * 自分のパスワードに変える。
  */
 export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
   const { snapshot, me, actions } = useData()
@@ -20,24 +19,22 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
   const { run, pending } = useAction()
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
-  const [parts, setParts] = useState<Part[]>(me.parts)
   const [done, setDone] = useState(false)
 
   const score = PASSWORD_RULES.filter(([, f]) => f(pw)).length + (pw.length >= 12 ? 1 : 0)
   const lvl = score / 5
   const word = lvl < 0.4 ? '弱い' : lvl < 0.8 ? 'ふつう' : '強い'
   const mismatch = pw2 && pw2 !== pw ? 'パスワードが一致しません' : ''
-  const pwOk = PASSWORD_RULES[0][1](pw) && pw === pw2
-  const valid = pwOk && parts.length > 0
-  const step = !pwOk ? 1 : parts.length ? 3 : 2
+  const valid = PASSWORD_RULES[0][1](pw) && pw === pw2
+  const step = valid ? 2 : 1
 
-  const bands = bandNamesOf(snapshot, me.id)
-  // 招待した人：最初の管理者
+  const duties = dutiesOf(snapshot, me.id)
+  // 招待した人：幹部のひとり
   const inviter = snapshot.members.find((m) => m.appRole === 'admin' && m.id !== me.id)
 
   const submit = async () => {
     if (!valid) return
-    if (await run(() => actions.completeOnboarding({ password: pw, parts }))) setDone(true)
+    if (await run(() => actions.completeOnboarding(pw))) setDone(true)
   }
 
   return (
@@ -63,7 +60,8 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
               </span>
               <h1 className="ob-title">登録が完了しました</h1>
               <p className="rb-muted">
-                ようこそ、{me.name.split(/\s+/)[0]}さん。{bands.length ? `${bands.join('・')} のメンバーとして` : ''}利用をはじめられます。
+                ようこそ、{me.name.split(/\s+/)[0]}さん。
+                {duties.length ? `さっそく ${formatMd(duties[0].event.date, false)}「${duties[0].event.title}」で ${duties[0].role.name} の担当があります。` : '裏方メンバーとして利用をはじめられます。'}
               </p>
               <Button
                 variant="primary"
@@ -91,10 +89,10 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
                 <h1 className="ob-title">アカウントを設定しましょう</h1>
               </div>
               <div className="ob-invite">
-                <Avatar name={inviter?.name ?? '管理者'} size={44} role={inviter?.parts[0]} />
+                <Avatar name={inviter?.name ?? '幹部'} size={44} badge={{ icon: 'crown', color: 'var(--amber)' }} />
                 <div>
                   <div className="ob-invite__t">
-                    <b>{inviter?.name ?? '管理者'}</b> さんから{bands.length ? <><b> {bands.join('・')}</b> への</> : ''}招待が届いています
+                    <b>{inviter?.name ?? '幹部'}</b> さんから裏方チームへの招待が届いています
                   </div>
                   <div className="rb-mono rb-muted">登録日 {formatYmd(me.createdAt.slice(0, 10))}</div>
                 </div>
@@ -106,7 +104,7 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
                 type="email"
                 value={me.email}
                 readOnly
-                help="管理者が登録したアドレスです。変えたいときは管理者に依頼してください。"
+                help="幹部が登録したアドレスです。変えたいときは幹部に依頼してください。"
               />
               <div className="ob-two">
                 <div className="ob-pw">
@@ -146,12 +144,6 @@ export function OnboardingPage({ onFinish }: { onFinish: () => void }) {
                   autoComplete="new-password"
                 />
               </div>
-              <ChipSelect
-                label="担当パート（あとから変更できます）"
-                value={parts}
-                onChange={(v) => setParts(v as Part[])}
-                options={PARTS.map((p) => ({ value: p, role: p }))}
-              />
               <div className="ob-foot">
                 <Button variant="ghost" icon="logout" onClick={() => void signOut().then(() => navigate('/', { replace: true }))}>
                   ログアウト

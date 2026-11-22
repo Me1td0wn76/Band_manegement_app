@@ -1,4 +1,4 @@
-import type { BandEvent } from '../models/types'
+import type { LiveEvent } from '../models/types'
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -24,7 +24,7 @@ export function formatYmd(iso: string): string {
 }
 
 /** 開場・開演の表記 */
-export function formatDoors(event: Pick<BandEvent, 'openTime' | 'startTime'>): string {
+export function formatDoors(event: Pick<LiveEvent, 'openTime' | 'startTime'>): string {
   const parts = []
   if (event.openTime) parts.push(`開場 ${event.openTime}`)
   if (event.startTime) parts.push(`開演 ${event.startTime}`)
@@ -67,7 +67,6 @@ export function formatLogTime(iso: string): string {
   return sameDay ? formatClock(iso) : `${d.getMonth() + 1}/${d.getDate()} ${formatClock(iso)}`
 }
 
-export const GENRES = ['Rock', 'Garage Rock', 'J-Rock', 'Post Rock', 'Shoegaze', 'Synth Punk', 'City Pop', 'Jazz', 'Pops', 'Metal', 'Acoustic']
 
 /** 初期パスワードの生成（紛らわしい文字を除く） */
 export function generatePassword(length = 10): string {

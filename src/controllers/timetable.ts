@@ -157,7 +157,7 @@ export function fitToEnd(
   const c2 = k > 0 ? Math.min(opts.maxChangeover, Math.max(opts.minChangeover, Math.floor((avail - flexTotal) / k))) : changeoverMinutes
   const playAvail = avail - k * (k > 0 ? c2 : 0)
   if (flex.length === 0 || flexTotal === 0) {
-    const over = -(playAvail - 0)
+    const over = -playAvail
     return {
       items,
       changeoverMinutes: c2,

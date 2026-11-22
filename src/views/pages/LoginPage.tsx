@@ -10,7 +10,7 @@ const LINES: [text: string, accent: boolean][] = [
   ['最高の段取りで。', true],
 ]
 
-const TICKER = ['EVENTS · イベントを登録して表で管理', 'BANDS · バンドとパートの編成', 'ASSIGN · 役割をステージ図で自動割り振り', 'MEMBERS · メンバー登録と管理者権限']
+const TICKER = ['TIMETABLE · 出演順・転換・終演を自動で組む', 'CREW · 撮影・照明・SNS・タイムキーパー・PA', 'ASSIGN · 裏方を公平に自動割り振り', 'EVENTS · ライブを表で管理']
 
 export function LoginPage() {
   const { signIn } = useAuth()
@@ -42,7 +42,7 @@ export function LoginPage() {
         <section className="lg-poster">
           <Logo size={44} />
           <div>
-            <div className="rb-eyebrow">Band management · Live &amp; Rehearsal</div>
+            <div className="rb-eyebrow">Backstage crew · Live timetable</div>
             <h1 className="lg-head" aria-label={LINES.map(([t]) => t).join('')}>
               {LINES.map(([t, accent], li) => (
                 <span key={li} className={accent ? 'lg-line lg-accent' : 'lg-line'} aria-hidden="true">
@@ -54,7 +54,7 @@ export function LoginPage() {
                 </span>
               ))}
             </h1>
-            <p className="lg-lead">イベント、メンバー、バンド、役割の割り振りまで。ライブ前の段取りを、ひとつのステージにまとめます。</p>
+            <p className="lg-lead">出演順と転換、終演までの時間。撮影・照明・SNS・タイムキーパー・PA の担当。ライブの裏方の段取りを、ひとつのステージにまとめます。</p>
           </div>
           <StringDivider strings={6} autoPluck />
           <Ticker items={TICKER} />
@@ -96,7 +96,7 @@ export function LoginPage() {
           </Button>
           <p className="lg-note">
             <Icon name="mail" size={14} />
-            メンバー登録は管理者が行います。受け取ったメールアドレスと初期パスワードでログインし、最初に初期登録（パスワードとパートの設定）を行ってください。パスワードを忘れたときは管理者に再設定を依頼してください。
+            メンバー登録は幹部が行います。受け取ったメールアドレスと初期パスワードでログインし、最初にパスワードを設定し直してください。パスワードを忘れたときは幹部に再設定を依頼してください。
           </p>
 
           {repository.mode === 'demo' && (
