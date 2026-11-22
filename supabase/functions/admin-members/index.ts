@@ -16,7 +16,6 @@ const corsHeaders = {
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MIN_PASSWORD_LENGTH = 8
-const PARTS = ['vo', 'gt', 'ba', 'dr', 'key']
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -52,7 +51,7 @@ Deno.serve(async (req) => {
     .eq('id', callerId)
     .maybeSingle()
   if (!caller || caller.app_role !== 'admin' || !caller.active) {
-    return json({ error: 'この操作は管理者のみ実行できます' }, 403)
+    return json({ error: 'この操作は幹部（管理者）のみ実行できます' }, 403)
   }
 
   let body: Record<string, unknown>
@@ -69,9 +68,7 @@ Deno.serve(async (req) => {
       const password = typeof body.password === 'string' ? body.password : ''
       const name = str(body.name)
       const appRole = body.appRole === 'admin' ? 'admin' : 'member'
-      const parts = Array.isArray(body.parts) ? body.parts.filter((p): p is string => PARTS.includes(p as string)) : []
       if (!name) return json({ error: '名前を入力してください' }, 400)
-      if (parts.length === 0) return json({ error: 'パートを1つ以上選んでください' }, 400)
       if (!email || !EMAIL_PATTERN.test(email)) return json({ error: 'メールアドレスの形式が正しくありません' }, 400)
       if (password.length < MIN_PASSWORD_LENGTH) {
         return json({ error: `初期パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください` }, 400)
@@ -96,7 +93,6 @@ Deno.serve(async (req) => {
         .update({
           name,
           kana: str(body.kana),
-          parts,
           note: str(body.note),
           app_role: appRole,
           must_change_password: true,
