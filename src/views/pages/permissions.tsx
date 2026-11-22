@@ -3,14 +3,15 @@ import type { CSSVars } from '../rb/core'
 
 /** 操作ごとの権限（メンバー / 管理者） */
 export const PERMISSIONS: [action: string, member: boolean, admin: boolean][] = [
-  ['イベント・出演予定の閲覧', true, true],
-  ['メンバー・バンドの閲覧', true, true],
-  ['自分のプロフィール・パートの変更', true, true],
+  ['イベント・タイムテーブル・裏方の閲覧', true, true],
+  ['自分の参加可否の登録', true, true],
+  ['自分のプロフィール・パスワードの変更', true, true],
+  ['撮影・照明・SNS・タイムキーパーの担当', true, true],
+  ['PA の担当', false, true],
   ['イベントの登録・編集・削除', false, true],
-  ['バンドの登録・編集・削除', false, true],
-  ['メンバーの登録・パスワード再設定・削除', false, true],
-  ['役割の自動割り振り・手動編集・確定', false, true],
-  ['管理者権限の付与・解除', false, true],
+  ['タイムテーブルの編集・自動調整', false, true],
+  ['裏方の自動割り振り・手動編集・確定', false, true],
+  ['メンバーの登録・役割の設定・幹部権限の付与', false, true],
 ]
 
 function Mark({ ok }: { ok: boolean }) {
@@ -38,7 +39,7 @@ export function PermissionTable({ youAreAdmin }: { youAreAdmin: boolean }) {
             <th scope="col">
               <span className="mv-admin">
                 <Icon name="crown" size={14} />
-                管理者{youAreAdmin ? '（あなた）' : ''}
+                幹部{youAreAdmin ? '（あなた）' : ''}
               </span>
             </th>
           </tr>

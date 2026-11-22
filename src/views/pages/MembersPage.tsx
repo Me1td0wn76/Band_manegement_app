@@ -1,22 +1,21 @@
 import { useState, type FormEvent } from 'react'
 import { useData } from '../../controllers/DataController'
-import { bandNamesOf, monthOf, monthlyLoad, todayISO } from '../../controllers/selectors'
-import { PART_SHORT } from '../../models/slots'
-import { PARTS, type Member, type Part } from '../../models/types'
+import { dutiesOf, monthOf, monthlyLoad, todayISO } from '../../controllers/selectors'
+import type { Member } from '../../models/types'
 import { Page } from '../AppShell'
 import { useAction, useConfirm, useToast } from '../feedback'
-import { Button, Card, ChipSelect, Icon, IconButton, Modal, Tabs, TextArea, TextField, Toggle, type CSSVars } from '../rb/core'
+import { Button, Card, Icon, IconButton, Modal, Tabs, TextArea, TextField, Toggle, type CSSVars } from '../rb/core'
 import { MemberCard, type MemberCardData } from '../rb/data'
-import { EMAIL_PATTERN, MIN_PASSWORD_LENGTH, downloadCsv, generatePassword } from '../format'
+import { EMAIL_PATTERN, MIN_PASSWORD_LENGTH, downloadCsv, formatMd, generatePassword } from '../format'
 
 type Tab = 'all' | 'admin' | 'invited' | 'inactive'
 
-const ROLE_OPTS = PARTS.map((p) => ({ value: p, role: p }))
+const LEAD_DESCRIPTION = 'できること：PA の担当、イベント・タイムテーブル・メンバーの登録、裏方の割り振り'
 
 /** 登録・再設定後に、本人へ伝えるログイン情報 */
 function CredentialsModal({ name, email, password, onClose }: { name: string; email: string; password: string; onClose: () => void }) {
   const toast = useToast()
-  const text = `${name}さん\nRiffboard のアカウントを作成しました。\nログインURL: ${window.location.origin}${window.location.pathname}\nメールアドレス: ${email}\n初期パスワード: ${password}\n初回ログイン時に、パスワードと担当パートの登録をお願いします。`
+  const text = `${name}さん\nRiffboard（ライブの裏方管理）のアカウントを作成しました。\nログインURL: ${window.location.origin}${window.location.pathname}\nメールアドレス: ${email}\n初期パスワード: ${password}\n初回ログイン時に、パスワードの登録をお願いします。`
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text)
@@ -42,7 +41,7 @@ function CredentialsModal({ name, email, password, onClose }: { name: string; em
       }
     >
       <div className="app-stack">
-        <p className="rb-muted">{name}さんは、初回ログイン時に初期登録（パスワードの再設定とパートの登録）を行います。</p>
+        <p className="rb-muted">{name}さんは、初回ログイン時に初期登録（パスワードの再設定）を行います。</p>
         <dl className="app-credentials">
           <dt>メールアドレス</dt>
           <dd className="rb-mono">{email}</dd>
@@ -112,11 +111,10 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
   const [name, setName] = useState(member.name)
   const [kana, setKana] = useState(member.kana ?? '')
   const [email, setEmail] = useState(member.email)
-  const [parts, setParts] = useState<Part[]>(member.parts)
-  const [admin, setAdmin] = useState(member.appRole === 'admin')
+  const [lead, setLead] = useState(member.appRole === 'admin')
   const [active, setActive] = useState(member.active)
   const [note, setNote] = useState(member.note ?? '')
-  const [err, setErr] = useState<Partial<Record<'name' | 'email' | 'parts', string>>>({})
+  const [err, setErr] = useState<Partial<Record<'name' | 'email', string>>>({})
   const [resetting, setResetting] = useState(false)
 
   if (resetting) return <ResetPasswordModal member={member} onClose={onClose} />
@@ -125,7 +123,6 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
     const er: typeof err = {}
     if (!name.trim()) er.name = '名前を入力してください'
     if (!EMAIL_PATTERN.test(email.trim())) er.email = 'メールアドレスの形式が正しくありません'
-    if (!parts.length) er.parts = 'パートを1つ以上選んでください'
     setErr(er)
     if (Object.keys(er).length) return
     const ok = await run(
@@ -134,8 +131,7 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
           name: name.trim(),
           kana: kana.trim() || null,
           email: email.trim(),
-          parts,
-          appRole: admin ? 'admin' : 'member',
+          appRole: lead ? 'admin' : 'member',
           active,
           note: note.trim() || null,
         }),
@@ -148,7 +144,7 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
     const ok = await confirm({
       eyebrow: 'Delete member',
       title: 'メンバーを削除',
-      message: `『${member.name}』のアカウントと、バンドの所属が削除されます。割り振られていた枠は空きになります。この操作は元に戻せません。一時的に外すだけなら「有効」をオフにしてください。`,
+      message: `『${member.name}』のアカウントと、裏方の割り当て・参加可否が削除されます。この操作は元に戻せません。一時的に外すだけなら「有効」をオフにしてください。`,
       confirmLabel: '削除する',
       danger: true,
     })
@@ -191,30 +187,9 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
           <TextField label="名前" required icon="users" value={name} onChange={(e) => setName(e.target.value)} error={err.name} />
           <TextField label="ローマ字" value={kana} onChange={(e) => setKana(e.target.value)} placeholder="Yamada Taro" />
         </div>
-        <TextField
-          label="ログイン用メールアドレス"
-          required
-          icon="mail"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          error={err.email}
-        />
-        <ChipSelect label="担当パート" value={parts} onChange={(v) => setParts(v as Part[])} options={ROLE_OPTS} />
-        {err.parts && (
-          <p className="mb-err">
-            <Icon name="alert" size={14} />
-            {err.parts}
-          </p>
-        )}
+        <TextField label="ログイン用メールアドレス" required icon="mail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} error={err.email} />
         <div className="mb-admin">
-          <Toggle
-            checked={admin}
-            onChange={setAdmin}
-            disabled={isSelf}
-            label="管理者権限"
-            description={isSelf ? '自分自身の権限は変更できません' : 'できること：イベント・バンド・メンバーの登録と、役割の割り振り'}
-          />
+          <Toggle checked={lead} onChange={setLead} disabled={isSelf} label="幹部（管理者）" description={isSelf ? '自分自身の権限は変更できません' : LEAD_DESCRIPTION} />
         </div>
         <Toggle
           checked={active}
@@ -223,7 +198,7 @@ function MemberEditModal({ member, onClose }: { member: Member; onClose: () => v
           label="有効"
           description="オフにするとログインしても利用できなくなり、割り振りの候補から外れます"
         />
-        <TextArea label="メモ（管理者のみ閲覧）" value={note} onChange={setNote} rows={2} />
+        <TextArea label="メモ（幹部のみ閲覧）" value={note} onChange={setNote} rows={2} />
       </form>
     </Modal>
   )
@@ -234,14 +209,15 @@ export function MembersPage() {
   const { run, pending } = useAction()
   const [tab, setTab] = useState<Tab>('all')
   const [q, setQ] = useState('')
-  const blank = () => ({ name: '', kana: '', email: '', pw: generatePassword(), parts: [] as Part[], bands: [] as string[], admin: false })
+  const blank = () => ({ name: '', kana: '', email: '', pw: generatePassword(), lead: false })
   const [f, setF] = useState(blank)
-  const [err, setErr] = useState<Partial<Record<'name' | 'email' | 'pw' | 'parts', string>>>({})
+  const [err, setErr] = useState<Partial<Record<'name' | 'email' | 'pw', string>>>({})
   const [editing, setEditing] = useState<Member | null>(null)
   const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null)
 
   const set = <K extends keyof ReturnType<typeof blank>>(k: K, v: ReturnType<typeof blank>[K]) => setF((x) => ({ ...x, [k]: v }))
-  const load = monthlyLoad(snapshot, monthOf(todayISO()))
+  const today = todayISO()
+  const load = monthlyLoad(snapshot, monthOf(today))
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -250,7 +226,6 @@ export function MembersPage() {
     if (!EMAIL_PATTERN.test(f.email.trim())) er.email = 'メールアドレスの形式が正しくありません'
     else if (snapshot.members.some((m) => m.email.toLowerCase() === f.email.trim().toLowerCase())) er.email = 'このメールアドレスは登録済みです'
     if (f.pw.length < MIN_PASSWORD_LENGTH) er.pw = `初期パスワードは${MIN_PASSWORD_LENGTH}文字以上にしてください`
-    if (!f.parts.length) er.parts = 'パートを1つ以上選んでください'
     setErr(er)
     if (Object.keys(er).length) return
     const input = {
@@ -258,10 +233,8 @@ export function MembersPage() {
       kana: f.kana.trim() || null,
       email: f.email.trim(),
       password: f.pw,
-      parts: f.parts,
-      appRole: f.admin ? ('admin' as const) : ('member' as const),
+      appRole: f.lead ? ('admin' as const) : ('member' as const),
       note: null,
-      bandIds: f.bands,
     }
     const ok = await run(() => actions.createMember(input), {
       title: 'メンバーを登録しました',
@@ -273,22 +246,23 @@ export function MembersPage() {
     }
   }
 
-  const cards: (MemberCardData & { member: Member })[] = snapshot.members.map((m) => ({
-    member: m,
-    id: m.id,
-    name: m.name,
-    kana: m.kana,
-    email: m.email,
-    parts: m.parts,
-    bands: bandNamesOf(snapshot, m.id),
-    isAdmin: m.appRole === 'admin',
-    invited: m.mustChangePassword,
-    inactive: !m.active,
-    load: load.get(m.id) ?? 0,
-    isMe: m.id === me.id,
-  }))
-  const inTab = (c: MemberCardData, t: Tab) =>
-    t === 'inactive' ? c.inactive : !c.inactive && (t === 'all' || (t === 'admin' ? c.isAdmin : c.invited))
+  const cards: (MemberCardData & { member: Member })[] = snapshot.members.map((m) => {
+    const next = dutiesOf(snapshot, m.id, today)[0]
+    return {
+      member: m,
+      id: m.id,
+      name: m.name,
+      kana: m.kana,
+      email: m.email,
+      isAdmin: m.appRole === 'admin',
+      invited: m.mustChangePassword,
+      inactive: !m.active,
+      load: load.get(m.id) ?? 0,
+      next: next ? `${formatMd(next.event.date, false)} ${next.event.title}・${next.role.name}` : null,
+      isMe: m.id === me.id,
+    }
+  })
+  const inTab = (c: MemberCardData, t: Tab) => (t === 'inactive' ? c.inactive : !c.inactive && (t === 'all' || (t === 'admin' ? c.isAdmin : c.invited)))
   const counts = {
     all: cards.filter((c) => inTab(c, 'all')).length,
     admin: cards.filter((c) => inTab(c, 'admin')).length,
@@ -296,32 +270,19 @@ export function MembersPage() {
     inactive: cards.filter((c) => inTab(c, 'inactive')).length,
   }
   const keyword = q.trim().toLowerCase()
-  const shown = cards.filter(
-    (c) => inTab(c, tab) && (!keyword || [c.name, c.kana ?? '', c.email, ...c.bands].join(' ').toLowerCase().includes(keyword)),
-  )
+  const shown = cards.filter((c) => inTab(c, tab) && (!keyword || [c.name, c.kana ?? '', c.email].join(' ').toLowerCase().includes(keyword)))
 
   const exportCsv = () =>
-    downloadCsv(`members-${todayISO()}.csv`, [
-      ['名前', 'ローマ字', 'メールアドレス', 'パート', '所属バンド', '権限', '状態', '今月の出演'],
-      ...shown.map((c) => [
-        c.name,
-        c.kana ?? '',
-        c.email,
-        c.parts.map((p) => PART_SHORT[p]).join(' / '),
-        c.bands.join(' / '),
-        c.isAdmin ? '管理者' : 'メンバー',
-        c.inactive ? '無効' : c.invited ? '招待中' : '有効',
-        c.load,
-      ]),
+    downloadCsv(`members-${today}.csv`, [
+      ['名前', 'ローマ字', 'メールアドレス', '権限', '状態', '今月の担当', '次の担当'],
+      ...shown.map((c) => [c.name, c.kana ?? '', c.email, c.isAdmin ? '幹部' : 'メンバー', c.inactive ? '無効' : c.invited ? '招待中' : '有効', c.load, c.next ?? '']),
     ])
-
-  const bandOpts = snapshot.bands.filter((b) => b.active).map((b) => ({ value: b.id, label: b.name, icon: 'amp' as const }))
 
   return (
     <Page
-      eyebrow={isAdmin ? 'Admin · Members' : 'Member · Members'}
+      eyebrow={isAdmin ? 'Admin · Crew' : 'Member · Crew'}
       title={isAdmin ? 'メンバー管理' : 'メンバー'}
-      subtitle={isAdmin ? 'メンバーの登録と、パート・所属バンド・権限の管理を行います。' : 'メンバーの担当パートと所属バンドを確認できます。'}
+      subtitle={isAdmin ? '裏方メンバーの登録と、幹部権限の管理を行います。' : '裏方メンバーと、それぞれの担当状況を確認できます。'}
       actions={
         <Button icon="table" onClick={exportCsv} disabled={!shown.length}>
           CSV書き出し
@@ -336,19 +297,12 @@ export function MembersPage() {
               onChange={setTab}
               tabs={[
                 { id: 'all', label: 'すべて', count: counts.all },
-                { id: 'admin', label: '管理者', icon: 'crown', count: counts.admin },
+                { id: 'admin', label: '幹部', icon: 'crown', count: counts.admin },
                 { id: 'invited', label: '招待中', count: counts.invited },
                 ...(counts.inactive ? [{ id: 'inactive' as const, label: '無効', count: counts.inactive }] : []),
               ]}
             />
-            <TextField
-              className="mb-search"
-              icon="search"
-              placeholder="名前・メール・バンドで検索"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              aria-label="メンバーを検索"
-            />
+            <TextField className="mb-search" icon="search" placeholder="名前・メールで検索" value={q} onChange={(e) => setQ(e.target.value)} aria-label="メンバーを検索" />
           </div>
           {shown.length === 0 ? (
             <Card>
@@ -357,12 +311,7 @@ export function MembersPage() {
           ) : (
             <div className="mb-grid" key={tab + keyword}>
               {shown.map((c, i) => (
-                <MemberCard
-                  key={c.id}
-                  member={c}
-                  onEdit={isAdmin ? () => setEditing(c.member) : undefined}
-                  style={{ '--i': i } as CSSVars}
-                />
+                <MemberCard key={c.id} member={c} onEdit={isAdmin ? () => setEditing(c.member) : undefined} style={{ '--i': i } as CSSVars} />
               ))}
             </div>
           )}
@@ -372,15 +321,7 @@ export function MembersPage() {
           <aside className="mb-side">
             <Card eyebrow="New member" title="メンバーを登録" glow>
               <form className="mb-form" onSubmit={submit} noValidate>
-                <TextField
-                  label="名前"
-                  required
-                  icon="users"
-                  value={f.name}
-                  onChange={(e) => set('name', e.target.value)}
-                  error={err.name}
-                  placeholder="例：山田 太郎"
-                />
+                <TextField label="名前" required icon="users" value={f.name} onChange={(e) => set('name', e.target.value)} error={err.name} placeholder="例：山田 太郎" />
                 <TextField label="ローマ字" value={f.kana} onChange={(e) => set('kana', e.target.value)} placeholder="Yamada Taro" />
                 <div className="mb-sep">
                   <span className="rb-eyebrow">
@@ -410,29 +351,8 @@ export function MembersPage() {
                   autoComplete="new-password"
                   trailing={<IconButton icon="shuffle" label="パスワードを自動生成" size="sm" onClick={() => set('pw', generatePassword())} />}
                 />
-                <div className="mb-sep">
-                  <span className="rb-eyebrow">
-                    <Icon name="note" size={12} />
-                    Part &amp; band
-                  </span>
-                </div>
-                <ChipSelect label="担当パート" value={f.parts} onChange={(v) => set('parts', v as Part[])} options={ROLE_OPTS} />
-                {err.parts && (
-                  <p className="mb-err">
-                    <Icon name="alert" size={14} />
-                    {err.parts}
-                  </p>
-                )}
-                {bandOpts.length > 0 && (
-                  <ChipSelect label="所属バンド" value={f.bands} onChange={(v) => set('bands', v)} options={bandOpts} />
-                )}
                 <div className="mb-admin">
-                  <Toggle
-                    checked={f.admin}
-                    onChange={(v) => set('admin', v)}
-                    label="管理者権限"
-                    description="できること：イベント・バンド・メンバーの登録と、役割の割り振り"
-                  />
+                  <Toggle checked={f.lead} onChange={(v) => set('lead', v)} label="幹部（管理者）" description={LEAD_DESCRIPTION} />
                 </div>
                 <Button type="submit" variant="primary" icon="user-plus" block size="lg" loading={pending}>
                   メンバーを登録

@@ -12,7 +12,6 @@ import {
   todayISO,
   upcomingEvents,
 } from '../../controllers/selectors'
-import { fmtMin } from '../../controllers/timetable'
 import type { ActivityKind } from '../../models/types'
 import { Page } from '../AppShell'
 import { eventTicker, toEventRow } from '../eventRows'
@@ -299,7 +298,6 @@ export function DashboardPage() {
           }
         />
       </section>
-      {nextSchedule && <span className="rb-sr">終演予定 {fmtMin(nextSchedule.end)}</span>}
     </Page>
   )
 }
