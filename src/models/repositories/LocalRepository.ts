@@ -1,20 +1,21 @@
 import type {
+  ActivityInput,
   AppSnapshot,
-  AssignmentDraft,
-  AssignmentMode,
   BandInput,
   EventInput,
   Member,
   MemberCreateInput,
   MemberUpdateInput,
+  OnboardingInput,
+  Part,
   ProfileUpdateInput,
-  RoleInput,
+  SlotAssignment,
 } from '../types'
 import { createDemoSeed } from './demoSeed'
 import type { Repository } from './Repository'
 
-const STORAGE_KEY = 'band-manager-demo-v1'
-const SESSION_KEY = 'band-manager-demo-session'
+const STORAGE_KEY = 'riffboard-demo-v2'
+const SESSION_KEY = 'riffboard-demo-session'
 
 interface DemoState {
   snapshot: AppSnapshot
@@ -27,9 +28,8 @@ async function sha256(text: string): Promise<string> {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-function newId(): string {
-  return crypto.randomUUID()
-}
+const newId = () => crypto.randomUUID()
+const nowIso = () => new Date().toISOString()
 
 function readStorage(key: string): string | null {
   try {
@@ -132,7 +132,7 @@ export class LocalRepository implements Repository {
     const member = state.snapshot.members.find((m) => m.email.toLowerCase() === email.trim().toLowerCase())
     const hash = await sha256(password)
     if (!member || state.passwordHashes[member.id] !== hash) {
-      throw new Error('メールアドレスまたはパスワードが正しくありません')
+      throw new Error('メールアドレスかパスワードが違います。入力を確かめてください')
     }
     this.sessionUserId = member.id
     writeStorage(SESSION_KEY, member.id)
@@ -154,6 +154,16 @@ export class LocalRepository implements Repository {
     })
   }
 
+  async completeOnboarding(input: OnboardingInput): Promise<void> {
+    const hash = await sha256(input.password)
+    await this.mutate((state) => {
+      const me = this.currentMember(state)
+      state.passwordHashes[me.id] = hash
+      me.parts = input.parts
+      me.mustChangePassword = false
+    })
+  }
+
   // ---------------- 読み込み ----------------
 
   async loadAll(): Promise<AppSnapshot> {
@@ -162,48 +172,55 @@ export class LocalRepository implements Repository {
     s.members.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
     s.bands.sort((a, b) => a.name.localeCompare(b.name, 'ja'))
     s.events.sort((a, b) => a.date.localeCompare(b.date))
-    s.roles.sort((a, b) => a.sortOrder - b.sortOrder)
     s.eventBands.sort((a, b) => a.order - b.order)
-    s.runs.sort((a, b) => b.executedAt.localeCompare(a.executedAt))
+    s.slots.sort((a, b) => a.sortOrder - b.sortOrder)
+    s.activities.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    s.activities = s.activities.slice(0, 200)
     return s
   }
 
   // ---------------- メンバー ----------------
 
   private assertUniqueEmail(state: DemoState, email: string, exceptId?: string): void {
-    const exists = state.snapshot.members.some(
-      (m) => m.id !== exceptId && m.email.toLowerCase() === email.toLowerCase(),
-    )
-    if (exists) throw new Error('このメールアドレスは既に登録されています')
+    const exists = state.snapshot.members.some((m) => m.id !== exceptId && m.email.toLowerCase() === email.toLowerCase())
+    if (exists) throw new Error('このメールアドレスは登録済みです')
   }
 
-  async createMember(input: MemberCreateInput): Promise<void> {
+  async createMember(input: MemberCreateInput): Promise<string> {
     const hash = await sha256(input.password)
-    await this.mutate((state) => {
+    return this.mutate((state) => {
       this.requireAdmin(state)
       this.assertUniqueEmail(state, input.email)
       const id = newId()
       state.snapshot.members.push({
         id,
         name: input.name,
+        kana: input.kana,
         email: input.email,
-        part: input.part,
+        parts: input.parts,
         note: input.note,
         appRole: input.appRole,
         active: true,
         mustChangePassword: true,
-        createdAt: new Date().toISOString(),
+        createdAt: nowIso(),
       })
+      for (const bandId of input.bandIds) {
+        state.snapshot.bandMembers.push({ bandId, memberId: id, part: input.parts[0] ?? 'gt' })
+      }
       state.passwordHashes[id] = hash
+      return id
     })
   }
 
   async updateMember(id: string, input: MemberUpdateInput): Promise<void> {
     await this.mutate((state) => {
-      this.requireAdmin(state)
+      const me = this.requireAdmin(state)
       this.assertUniqueEmail(state, input.email, id)
       const m = state.snapshot.members.find((x) => x.id === id)
       if (!m) throw new Error('メンバーが見つかりません')
+      if (me.id === id && (input.appRole !== m.appRole || !input.active)) {
+        throw new Error('自分自身の権限と状態は変更できません')
+      }
       Object.assign(m, input)
     })
   }
@@ -226,9 +243,8 @@ export class LocalRepository implements Repository {
       const s = state.snapshot
       s.members = s.members.filter((m) => m.id !== id)
       s.bandMembers = s.bandMembers.filter((x) => x.memberId !== id)
-      s.assignments = s.assignments.filter((x) => x.memberId !== id)
-      s.exclusions = s.exclusions.filter((x) => x.memberId !== id)
-      for (const r of s.runs) if (r.executedBy === id) r.executedBy = null
+      for (const slot of s.slots) if (slot.memberId === id) slot.memberId = null
+      for (const a of s.activities) if (a.actorId === id) a.actorId = null
       delete state.passwordHashes[id]
     })
   }
@@ -236,8 +252,7 @@ export class LocalRepository implements Repository {
   async updateMyProfile(input: ProfileUpdateInput): Promise<void> {
     await this.mutate((state) => {
       const me = this.currentMember(state)
-      me.name = input.name
-      me.part = input.part
+      Object.assign(me, input)
     })
   }
 
@@ -245,22 +260,18 @@ export class LocalRepository implements Repository {
 
   private assertUniqueBand(state: DemoState, name: string, exceptId?: string): void {
     if (state.snapshot.bands.some((b) => b.id !== exceptId && b.name === name)) {
-      throw new Error('同じ名前のバンドが既に存在します')
+      throw new Error('同じ名前のバンドが登録済みです')
     }
   }
 
-  async createBand(input: BandInput): Promise<void> {
-    await this.mutate((state) => {
+  async createBand(input: BandInput): Promise<string> {
+    return this.mutate((state) => {
       this.requireAdmin(state)
       this.assertUniqueBand(state, input.name)
       const id = newId()
-      state.snapshot.bands.push({
-        id,
-        name: input.name,
-        description: input.description,
-        createdAt: new Date().toISOString(),
-      })
+      state.snapshot.bands.push({ id, name: input.name, genre: input.genre, active: input.active, createdAt: nowIso() })
       state.snapshot.bandMembers.push(...input.members.map((m) => ({ bandId: id, ...m })))
+      return id
     })
   }
 
@@ -271,7 +282,8 @@ export class LocalRepository implements Repository {
       const band = state.snapshot.bands.find((b) => b.id === id)
       if (!band) throw new Error('バンドが見つかりません')
       band.name = input.name
-      band.description = input.description
+      band.genre = input.genre
+      band.active = input.active
       state.snapshot.bandMembers = [
         ...state.snapshot.bandMembers.filter((bm) => bm.bandId !== id),
         ...input.members.map((m) => ({ bandId: id, ...m })),
@@ -286,30 +298,51 @@ export class LocalRepository implements Repository {
       s.bands = s.bands.filter((b) => b.id !== id)
       s.bandMembers = s.bandMembers.filter((x) => x.bandId !== id)
       s.eventBands = s.eventBands.filter((x) => x.bandId !== id)
+      s.slots = s.slots.filter((x) => x.bandId !== id)
+      for (const a of s.activities) if (a.bandId === id) a.bandId = null
     })
   }
 
   // ---------------- イベント ----------------
 
-  private writeEventRelations(state: DemoState, eventId: string, input: EventInput): void {
+  private writeEventBands(state: DemoState, eventId: string, input: EventInput): void {
     const s = state.snapshot
-    s.eventBands = [
-      ...s.eventBands.filter((x) => x.eventId !== eventId),
-      ...input.bandIds.map((bandId, i) => ({ eventId, bandId, order: i + 1 })),
-    ]
-    s.eventRoleSlots = [
-      ...s.eventRoleSlots.filter((x) => x.eventId !== eventId),
-      ...input.roleSlots.map((r) => ({ eventId, roleId: r.roleId, slots: r.slots })),
-    ]
+    const keep = new Set(input.bands.map((b) => b.bandId))
+    s.eventBands = s.eventBands.filter((x) => x.eventId !== eventId || keep.has(x.bandId))
+    s.slots = s.slots.filter((x) => x.eventId !== eventId || keep.has(x.bandId))
+    input.bands.forEach(({ bandId, slots }, i) => {
+      const existing = s.eventBands.find((x) => x.eventId === eventId && x.bandId === bandId)
+      if (existing) {
+        existing.order = i + 1
+        return
+      }
+      s.eventBands.push({ eventId, bandId, order: i + 1, confirmedAt: null })
+      slots.forEach((t, k) =>
+        s.slots.push({ id: newId(), eventId, bandId, part: t.part, label: t.label, sortOrder: k, memberId: null, locked: false }),
+      )
+    })
+  }
+
+  private eventFields(input: EventInput) {
+    return {
+      title: input.title,
+      date: input.date,
+      openTime: input.openTime,
+      startTime: input.startTime,
+      venue: input.venue,
+      capacity: input.capacity,
+      sold: input.sold,
+      description: input.description,
+      status: input.status,
+    }
   }
 
   async createEvent(input: EventInput): Promise<string> {
     return this.mutate((state) => {
       this.requireAdmin(state)
       const id = newId()
-      const { bandIds: _b, roleSlots: _r, ...fields } = input
-      state.snapshot.events.push({ id, ...fields, createdAt: new Date().toISOString() })
-      this.writeEventRelations(state, id, input)
+      state.snapshot.events.push({ id, ...this.eventFields(input), createdAt: nowIso() })
+      this.writeEventBands(state, id, input)
       return id
     })
   }
@@ -319,9 +352,8 @@ export class LocalRepository implements Repository {
       this.requireAdmin(state)
       const ev = state.snapshot.events.find((e) => e.id === id)
       if (!ev) throw new Error('イベントが見つかりません')
-      const { bandIds: _b, roleSlots: _r, ...fields } = input
-      Object.assign(ev, fields)
-      this.writeEventRelations(state, id, input)
+      Object.assign(ev, this.eventFields(input))
+      this.writeEventBands(state, id, input)
     })
   }
 
@@ -331,134 +363,74 @@ export class LocalRepository implements Repository {
       const s = state.snapshot
       s.events = s.events.filter((e) => e.id !== id)
       s.eventBands = s.eventBands.filter((x) => x.eventId !== id)
-      s.eventRoleSlots = s.eventRoleSlots.filter((x) => x.eventId !== id)
-      s.assignments = s.assignments.filter((x) => x.eventId !== id)
-      s.exclusions = s.exclusions.filter((x) => x.eventId !== id)
+      s.slots = s.slots.filter((x) => x.eventId !== id)
+      for (const a of s.activities) if (a.eventId === id) a.eventId = null
     })
   }
 
-  async setEventRoleSlot(eventId: string, roleId: string, slots: number): Promise<void> {
+  // ---------------- 役割の割り振り ----------------
+
+  async saveAssignment(eventId: string, bandId: string, slots: SlotAssignment[]): Promise<void> {
     await this.mutate((state) => {
       this.requireAdmin(state)
       const s = state.snapshot
-      const existing = s.eventRoleSlots.find((x) => x.eventId === eventId && x.roleId === roleId)
-      if (existing) existing.slots = slots
-      else s.eventRoleSlots.push({ eventId, roleId, slots })
-    })
-  }
-
-  // ---------------- 役割マスタ ----------------
-
-  private assertUniqueRole(state: DemoState, name: string, exceptId?: string): void {
-    if (state.snapshot.roles.some((r) => r.id !== exceptId && r.name === name)) {
-      throw new Error('同じ名前の役割が既に存在します')
-    }
-  }
-
-  async createRole(input: RoleInput): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      this.assertUniqueRole(state, input.name)
-      state.snapshot.roles.push({ id: newId(), ...input })
-    })
-  }
-
-  async updateRole(id: string, input: RoleInput): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      this.assertUniqueRole(state, input.name, id)
-      const role = state.snapshot.roles.find((r) => r.id === id)
-      if (!role) throw new Error('役割が見つかりません')
-      Object.assign(role, input)
-    })
-  }
-
-  async deleteRole(id: string): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      const s = state.snapshot
-      s.roles = s.roles.filter((r) => r.id !== id)
-      s.eventRoleSlots = s.eventRoleSlots.filter((x) => x.roleId !== id)
-      s.assignments = s.assignments.filter((x) => x.roleId !== id)
-    })
-  }
-
-  // ---------------- 割り当て ----------------
-
-  async addAssignment(draft: AssignmentDraft): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      const s = state.snapshot
-      const dup = s.assignments.some(
-        (a) => a.eventId === draft.eventId && a.roleId === draft.roleId && a.memberId === draft.memberId,
-      )
-      if (dup) throw new Error('既に割り当て済みです')
-      s.assignments.push({
-        id: newId(),
-        ...draft,
-        source: 'manual',
-        locked: true,
-        createdAt: new Date().toISOString(),
-      })
-    })
-  }
-
-  async removeAssignment(id: string): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      state.snapshot.assignments = state.snapshot.assignments.filter((a) => a.id !== id)
-    })
-  }
-
-  async setAssignmentLocked(id: string, locked: boolean): Promise<void> {
-    await this.mutate((state) => {
-      this.requireAdmin(state)
-      const a = state.snapshot.assignments.find((x) => x.id === id)
-      if (!a) throw new Error('割り当てが見つかりません')
-      a.locked = locked
-    })
-  }
-
-  async applyAutoAssignments(eventIds: string[], drafts: AssignmentDraft[], mode: AssignmentMode): Promise<number> {
-    return this.mutate((state) => {
-      const me = this.requireAdmin(state)
-      const s = state.snapshot
-      const targets = new Set(eventIds)
-      if (mode === 'regenerate') {
-        s.assignments = s.assignments.filter((a) => !targets.has(a.eventId) || a.locked)
+      for (const a of slots) {
+        const slot = s.slots.find((x) => x.id === a.id && x.eventId === eventId && x.bandId === bandId)
+        if (!slot) continue
+        slot.memberId = a.memberId
+        slot.locked = a.locked
       }
-      let inserted = 0
-      const now = new Date().toISOString()
-      for (const d of drafts) {
-        if (!targets.has(d.eventId)) continue
-        const dup = s.assignments.some(
-          (a) => a.eventId === d.eventId && a.roleId === d.roleId && a.memberId === d.memberId,
-        )
-        if (dup) continue
-        s.assignments.push({ id: newId(), ...d, source: 'auto', locked: false, createdAt: now })
-        inserted++
-      }
-      s.runs.unshift({
-        id: newId(),
-        executedBy: me.id,
-        executedAt: now,
-        eventIds,
-        assignedCount: inserted,
-        mode,
-      })
-      return inserted
+      const eb = s.eventBands.find((x) => x.eventId === eventId && x.bandId === bandId)
+      if (eb) eb.confirmedAt = null
     })
   }
 
-  // ---------------- 参加不可 ----------------
+  async addSlot(eventId: string, bandId: string, part: Part, label: string): Promise<void> {
+    await this.mutate((state) => {
+      this.requireAdmin(state)
+      const s = state.snapshot
+      const order = Math.max(-1, ...s.slots.filter((x) => x.eventId === eventId && x.bandId === bandId).map((x) => x.sortOrder)) + 1
+      s.slots.push({ id: newId(), eventId, bandId, part, label, sortOrder: order, memberId: null, locked: false })
+      const eb = s.eventBands.find((x) => x.eventId === eventId && x.bandId === bandId)
+      if (eb) eb.confirmedAt = null
+    })
+  }
 
-  async setExclusion(eventId: string, memberId: string, excluded: boolean, reason?: string | null): Promise<void> {
+  async removeSlot(slotId: string): Promise<void> {
+    await this.mutate((state) => {
+      this.requireAdmin(state)
+      const s = state.snapshot
+      const slot = s.slots.find((x) => x.id === slotId)
+      s.slots = s.slots.filter((x) => x.id !== slotId)
+      const eb = slot && s.eventBands.find((x) => x.eventId === slot.eventId && x.bandId === slot.bandId)
+      if (eb) eb.confirmedAt = null
+    })
+  }
+
+  async confirmAssignment(eventId: string, bandId: string): Promise<void> {
+    await this.mutate((state) => {
+      this.requireAdmin(state)
+      const eb = state.snapshot.eventBands.find((x) => x.eventId === eventId && x.bandId === bandId)
+      if (!eb) throw new Error('出演情報が見つかりません')
+      eb.confirmedAt = nowIso()
+    })
+  }
+
+  // ---------------- 活動ログ ----------------
+
+  async logActivity(input: ActivityInput): Promise<void> {
     await this.mutate((state) => {
       const me = this.currentMember(state)
-      if (me.appRole !== 'admin' && me.id !== memberId) throw new Error('他のメンバーの参加可否は変更できません')
-      const s = state.snapshot
-      s.exclusions = s.exclusions.filter((x) => !(x.eventId === eventId && x.memberId === memberId))
-      if (excluded) s.exclusions.push({ eventId, memberId, reason: reason ?? null })
+      state.snapshot.activities.unshift({
+        id: newId(),
+        actorId: me.id,
+        kind: input.kind,
+        text: input.text,
+        eventId: input.eventId ?? null,
+        bandId: input.bandId ?? null,
+        createdAt: nowIso(),
+      })
+      state.snapshot.activities = state.snapshot.activities.slice(0, 300)
     })
   }
 }
