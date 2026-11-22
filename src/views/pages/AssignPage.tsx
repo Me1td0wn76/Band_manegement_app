@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useData } from '../../controllers/DataController'
 import {
   bandsOfEvent,
@@ -74,7 +75,7 @@ export function AssignPage() {
     </div>
   )
 
-  const page = (body: React.ReactNode) => (
+  const page = (body: ReactNode) => (
     <Page
       eyebrow="Admin · Assign"
       title="役割の割り振り"

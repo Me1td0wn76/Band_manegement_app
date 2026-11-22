@@ -1,21 +1,21 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { AuthProvider, useAuth } from './controllers/AuthController'
 import { DataProvider, useDataState } from './controllers/DataController'
-import { FeedbackProvider } from './views/components/Feedback'
-import { Logo } from './views/components/Icon'
-import { Alert, Button, EmptyState } from './views/components/ui'
-import { AppShell } from './views/layout/AppShell'
-import { AccountPage, PasswordForm } from './views/pages/AccountPage'
-import { AssignmentPage } from './views/pages/AssignmentPage'
+import type { Member } from './models/types'
+import { AppShell } from './views/AppShell'
+import { FeedbackProvider } from './views/feedback'
+import { AccountPage } from './views/pages/AccountPage'
+import { AssignPage } from './views/pages/AssignPage'
 import { BandsPage } from './views/pages/BandsPage'
 import { DashboardPage } from './views/pages/DashboardPage'
-import { EventDetailPage } from './views/pages/EventDetailPage'
 import { EventsPage } from './views/pages/EventsPage'
 import { LoginPage } from './views/pages/LoginPage'
-import { MemberDetailPage } from './views/pages/MemberDetailPage'
 import { MembersPage } from './views/pages/MembersPage'
 import { MyPage } from './views/pages/MyPage'
 import { Forbidden, NotFound } from './views/pages/NotFound'
+import { OnboardingPage } from './views/pages/OnboardingPage'
+import { PermissionsPage } from './views/pages/PermissionsPage'
+import { Button, Card, EmptyState, Loader, StageBackdrop } from './views/rb/core'
 import { Redirect, matchPath, navigate, useLocation } from './views/router'
 
 export default function App() {
@@ -29,24 +29,23 @@ export default function App() {
 }
 
 function FullScreen({ children }: { children: ReactNode }) {
-  return <div className="fullscreen">{children}</div>
-}
-
-function Loading() {
   return (
-    <FullScreen>
-      <div className="loading">
-        <Logo size={36} />
-        <span className="spinner spinner-lg" aria-label="読み込み中" />
-      </div>
-    </FullScreen>
+    <StageBackdrop beams={2} dust={10} className="app-stage">
+      <div className="app-fullscreen">{children}</div>
+    </StageBackdrop>
   )
 }
 
 /** ログイン状態で画面を切り替える */
 function AuthGate() {
   const { state } = useAuth()
-  if (state.status === 'loading') return <Loading />
+  if (state.status === 'loading') {
+    return (
+      <FullScreen>
+        <Loader label="ステージを準備中" />
+      </FullScreen>
+    )
+  }
   if (state.status === 'signedOut') return <LoginPage />
   // ユーザーが変わったらデータを読み込み直す
   return (
@@ -64,21 +63,33 @@ function DataGate({ userId }: { userId: string }) {
     void signOut().then(() => navigate('/', { replace: true }))
   }
 
-  if (state.status === 'loading') return <Loading />
+  if (state.status === 'loading') {
+    return (
+      <FullScreen>
+        <Loader label="読み込み中" />
+      </FullScreen>
+    )
+  }
   if (state.status === 'error') {
     return (
       <FullScreen>
-        <div className="card narrow-card">
-          <EmptyState icon="alert" title="データを読み込めませんでした">
-            <p className="muted small">{state.error}</p>
-            <div className="button-row">
-              <Button onClick={logout}>ログアウト</Button>
-              <Button variant="primary" icon="refresh" onClick={() => reload().catch(() => {})}>
-                再読み込み
-              </Button>
-            </div>
-          </EmptyState>
-        </div>
+        <Card className="app-narrow">
+          <EmptyState
+            icon="cable"
+            title="データを読み込めませんでした"
+            message={`${state.error}　通信状況を確かめて、もう一度お試しください。`}
+            action={
+              <div className="app-row">
+                <Button variant="ghost" icon="logout" onClick={logout}>
+                  ログアウト
+                </Button>
+                <Button variant="primary" icon="undo" onClick={() => reload().catch(() => {})}>
+                  再読み込み
+                </Button>
+              </div>
+            }
+          />
+        </Card>
       </FullScreen>
     )
   }
@@ -87,34 +98,28 @@ function DataGate({ userId }: { userId: string }) {
   if (!me || !me.active) {
     return (
       <FullScreen>
-        <div className="card narrow-card">
-          <EmptyState icon="lock" title={me ? 'このアカウントは無効化されています' : 'メンバー情報が見つかりません'}>
-            <p className="muted small">管理者に連絡してください。</p>
-            <Button onClick={logout}>ログアウト</Button>
-          </EmptyState>
-        </div>
+        <Card className="app-narrow">
+          <EmptyState
+            icon="lock"
+            title={me ? 'このアカウントは無効になっています' : 'メンバー情報が見つかりません'}
+            message="管理者に連絡して、アカウントを有効にしてもらってください。"
+            action={
+              <Button variant="primary" icon="logout" onClick={logout}>
+                ログアウト
+              </Button>
+            }
+          />
+        </Card>
       </FullScreen>
     )
   }
+  return <SignedIn me={me} />
+}
 
-  if (me.mustChangePassword) {
-    return (
-      <FullScreen>
-        <div className="card narrow-card padded">
-          <div className="brand brand-center">
-            <Logo size={32} />
-          </div>
-          <h1 className="narrow-title">パスワードを変更してください</h1>
-          <Alert tone="info">初回ログインのため、管理者が設定した初期パスワードを新しいパスワードに変更してください。</Alert>
-          <PasswordForm submitLabel="変更して始める" />
-          <button type="button" className="text-link center-link" onClick={logout}>
-            ログアウト
-          </button>
-        </div>
-      </FullScreen>
-    )
-  }
-
+/** 初期登録がまだなら先に初期登録画面を出す */
+function SignedIn({ me }: { me: Member }) {
+  const [onboarding, setOnboarding] = useState(me.mustChangePassword)
+  if (onboarding) return <OnboardingPage onFinish={() => setOnboarding(false)} />
   return (
     <AppShell>
       <Routes isAdmin={me.appRole === 'admin'} />
@@ -125,34 +130,29 @@ function DataGate({ userId }: { userId: string }) {
 interface RouteDef {
   path: string
   adminOnly?: boolean
-  render: (params: Record<string, string>) => ReactNode
+  render: (params: Record<string, string>, isAdmin: boolean) => ReactNode
 }
 
 const ROUTES: RouteDef[] = [
-  { path: '/dashboard', adminOnly: true, render: () => <DashboardPage /> },
+  // 管理者はダッシュボード、メンバーはマイページ（同じメニュー項目）
+  { path: '/dashboard', render: (_, isAdmin) => (isAdmin ? <DashboardPage /> : <MyPage />) },
   { path: '/me', render: () => <MyPage /> },
   { path: '/events', render: () => <EventsPage /> },
-  { path: '/events/:id', render: (p) => <EventDetailPage key={p.id} id={p.id} /> },
-  { path: '/members', render: () => <MembersPage /> },
-  { path: '/members/:id', render: (p) => <MemberDetailPage key={p.id} id={p.id} /> },
   { path: '/bands', render: () => <BandsPage /> },
-  { path: '/assign', adminOnly: true, render: () => <AssignmentPage /> },
+  { path: '/members', render: () => <MembersPage /> },
+  { path: '/assign', adminOnly: true, render: () => <AssignPage /> },
+  { path: '/permissions', adminOnly: true, render: () => <PermissionsPage /> },
   { path: '/account', render: () => <AccountPage /> },
 ]
 
 function Routes({ isAdmin }: { isAdmin: boolean }) {
   const { path } = useLocation()
-
-  if (path === '/') {
-    // 管理者はダッシュボード、メンバーはマイページをトップにする
-    return <Redirect to={isAdmin ? '/dashboard' : '/me'} />
-  }
-
+  if (path === '/') return <Redirect to="/dashboard" />
   for (const route of ROUTES) {
     const params = matchPath(route.path, path)
     if (!params) continue
     if (route.adminOnly && !isAdmin) return <Forbidden />
-    return route.render(params)
+    return route.render(params, isAdmin)
   }
   return <NotFound />
 }

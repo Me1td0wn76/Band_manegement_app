@@ -311,7 +311,7 @@ export function RoleAssigner({
         <button
           key={`b${landed[s.id] ?? 0}`}
           type="button"
-          className={cx('rb-slot__btn', landed[s.id] && 'is-landed')}
+          className={cx('rb-slot__btn', Boolean(landed[s.id]) && 'is-landed')}
           draggable={!!m && !busy && !readOnly}
           onDragStart={dragStart({ slot: s.id })}
           onDragEnd={() => setDragging(null)}

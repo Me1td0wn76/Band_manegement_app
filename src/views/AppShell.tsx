@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '../controllers/AuthController'
 import { useData } from '../controllers/DataController'
 import { assignTodoCount, todayISO, upcomingEvents } from '../controllers/selectors'
@@ -46,15 +46,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const active = visible.find((i) => path === i.to || path.startsWith(`${i.to}/`))?.to
 
   // ナビの指標をアクティブな項目へ滑らせる
-  const measure = useCallback(() => {
-    const el = nav.current?.querySelector<HTMLElement>(`[data-nav="${active}"]`)
-    setInd(el ? { top: el.offsetTop, height: el.offsetHeight } : null)
-  }, [active])
   useLayoutEffect(() => {
+    const measure = () => {
+      const el = nav.current?.querySelector<HTMLElement>(`[data-nav="${active}"]`)
+      setInd(el ? { top: el.offsetTop, height: el.offsetHeight } : null)
+    }
     measure()
     const t = setTimeout(measure, 300)
     return () => clearTimeout(t)
-  }, [measure, visible.length])
+  }, [active, visible.length])
 
   const close = () => setOpen(false)
   const logout = () => {

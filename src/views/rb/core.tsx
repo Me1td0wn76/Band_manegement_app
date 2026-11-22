@@ -40,7 +40,8 @@ function initials(name: string): string {
   const t = name.trim()
   if (!t) return '?'
   const parts = t.split(/\s+/)
-  if (/[^\x00-\x7F]/.test(t[0])) return t[0]
+  // 日本語などの名前は先頭の1文字
+  if (t.charCodeAt(0) > 127) return t[0]
   return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase()
 }
 
@@ -796,7 +797,7 @@ export function StringDivider({
     () => Array.from({ length: strings }, (_, i) => (strings === 1 ? H / 2 : 6 + (i * (H - 12)) / (strings - 1))),
     [strings, H],
   )
-  const draw = useCallback(() => {
+  const draw = useCallback(function draw() {
     const s = st.current
     let alive = false
     s.t += 1
