@@ -298,3 +298,10 @@ a { color: inherit; text-decoration: none; }
   .ob-two { grid-template-columns: minmax(0, 1fr); }
   .ob-invite { flex-wrap: wrap; }
 }
+
+/* ---------- はみ出し防止（グリッドの子が表やティッカーで広がらないように） */
+.rb-shell__main { min-width: 0; }
+.rb-shell__content { grid-template-columns: minmax(0, 1fr); }
+.rb-shell__content > *, .db-section > *, .mb-main > *, .bd-main > *, .rb-topbar > * { min-width: 0; }
+.bd-main > .rb-tabs { max-width: 100%; }
+.rb-ticker { min-width: 0; max-width: 100%; }
