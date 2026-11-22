@@ -1,14 +1,17 @@
 import { FunctionsHttpError, createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
+  ActivityInput,
+  ActivityKind,
   AppSnapshot,
-  AssignmentDraft,
-  AssignmentMode,
   BandInput,
   EventInput,
+  EventStatus,
   MemberCreateInput,
   MemberUpdateInput,
+  OnboardingInput,
+  Part,
   ProfileUpdateInput,
-  RoleInput,
+  SlotAssignment,
 } from '../types'
 import type { Repository } from './Repository'
 
@@ -17,46 +20,48 @@ interface ProfileRow {
   id: string
   email: string
   name: string
-  part: string | null
+  kana: string | null
+  parts: Part[] | null
   note: string | null
   app_role: 'admin' | 'member'
   active: boolean
   must_change_password: boolean
   created_at: string
 }
-interface BandRow { id: string; name: string; description: string | null; created_at: string }
-interface BandMemberRow { band_id: string; member_id: string; part: string }
+interface BandRow { id: string; name: string; genre: string | null; active: boolean; created_at: string }
+interface BandMemberRow { band_id: string; member_id: string; part: Part }
 interface EventRow {
   id: string
   title: string
   event_date: string
+  open_time: string | null
   start_time: string | null
-  end_time: string | null
   venue: string | null
+  capacity: number | null
+  sold: number
   description: string | null
-  status: 'scheduled' | 'completed' | 'cancelled'
+  status: EventStatus
   created_at: string
 }
-interface EventBandRow { event_id: string; band_id: string; performance_order: number }
-interface RoleRow { id: string; name: string; description: string | null; default_slots: number; sort_order: number }
-interface EventRoleSlotRow { event_id: string; role_id: string; slots: number }
-interface AssignmentRow {
+interface EventBandRow { event_id: string; band_id: string; performance_order: number; confirmed_at: string | null }
+interface SlotRow {
   id: string
   event_id: string
-  role_id: string
-  member_id: string
-  source: 'auto' | 'manual'
+  band_id: string
+  part: Part
+  label: string
+  sort_order: number
+  member_id: string | null
   locked: boolean
-  created_at: string
 }
-interface ExclusionRow { event_id: string; member_id: string; reason: string | null }
-interface RunRow {
+interface ActivityRow {
   id: string
-  executed_by: string | null
-  executed_at: string
-  event_ids: string[]
-  assigned_count: number
-  mode: AssignmentMode
+  actor_id: string | null
+  kind: ActivityKind
+  text: string
+  event_id: string | null
+  band_id: string | null
+  created_at: string
 }
 
 interface Result<T> {
@@ -86,6 +91,12 @@ export class SupabaseRepository implements Repository {
     })
   }
 
+  private async requireUserId(): Promise<string> {
+    const id = await this.getCurrentUserId()
+    if (!id) throw new Error('ログインしていません')
+    return id
+  }
+
   // ---------------- 認証 ----------------
 
   async getCurrentUserId(): Promise<string | null> {
@@ -94,9 +105,7 @@ export class SupabaseRepository implements Repository {
   }
 
   onAuthStateChange(listener: (userId: string | null) => void): () => void {
-    const { data } = this.client.auth.onAuthStateChange((_event, session) => {
-      listener(session?.user.id ?? null)
-    })
+    const { data } = this.client.auth.onAuthStateChange((_event, session) => listener(session?.user.id ?? null))
     return () => data.subscription.unsubscribe()
   }
 
@@ -105,7 +114,7 @@ export class SupabaseRepository implements Repository {
     if (error) {
       throw new Error(
         error.message === 'Invalid login credentials'
-          ? 'メールアドレスまたはパスワードが正しくありません'
+          ? 'メールアドレスかパスワードが違います。入力を確かめてください'
           : error.message,
       )
     }
@@ -118,10 +127,16 @@ export class SupabaseRepository implements Repository {
   async changePassword(newPassword: string): Promise<void> {
     const { data, error } = await this.client.auth.updateUser({ password: newPassword })
     if (error) throw new Error(error.message)
+    check(await this.client.from('profiles').update({ must_change_password: false }).eq('id', data.user.id))
+  }
+
+  async completeOnboarding(input: OnboardingInput): Promise<void> {
+    const { data, error } = await this.client.auth.updateUser({ password: input.password })
+    if (error) throw new Error(error.message)
     check(
       await this.client
         .from('profiles')
-        .update({ must_change_password: false })
+        .update({ parts: input.parts, must_change_password: false })
         .eq('id', data.user.id),
     )
   }
@@ -130,26 +145,23 @@ export class SupabaseRepository implements Repository {
 
   async loadAll(): Promise<AppSnapshot> {
     const c = this.client
-    const [profiles, bands, bandMembers, events, eventBands, roles, slots, assignments, exclusions, runs] =
-      await Promise.all([
-        c.from('profiles').select('*').order('name'),
-        c.from('bands').select('*').order('name'),
-        c.from('band_members').select('*'),
-        c.from('events').select('*').order('event_date'),
-        c.from('event_bands').select('*').order('performance_order'),
-        c.from('roles').select('*').order('sort_order'),
-        c.from('event_role_slots').select('*'),
-        c.from('assignments').select('*'),
-        c.from('event_exclusions').select('event_id, member_id, reason'),
-        c.from('assignment_runs').select('*').order('executed_at', { ascending: false }).limit(50),
-      ])
+    const [profiles, bands, bandMembers, events, eventBands, slots, activities] = await Promise.all([
+      c.from('profiles').select('*').order('name'),
+      c.from('bands').select('*').order('name'),
+      c.from('band_members').select('*'),
+      c.from('events').select('*').order('event_date'),
+      c.from('event_bands').select('*').order('performance_order'),
+      c.from('event_slots').select('*').order('sort_order'),
+      c.from('activity_logs').select('*').order('created_at', { ascending: false }).limit(200),
+    ])
 
     return {
       members: unwrap(profiles as Result<ProfileRow[]>).map((r) => ({
         id: r.id,
         name: r.name,
+        kana: r.kana,
         email: r.email,
-        part: r.part,
+        parts: r.parts ?? [],
         note: r.note,
         appRole: r.app_role,
         active: r.active,
@@ -159,7 +171,8 @@ export class SupabaseRepository implements Repository {
       bands: unwrap(bands as Result<BandRow[]>).map((r) => ({
         id: r.id,
         name: r.name,
-        description: r.description,
+        genre: r.genre,
+        active: r.active,
         createdAt: r.created_at,
       })),
       bandMembers: unwrap(bandMembers as Result<BandMemberRow[]>).map((r) => ({
@@ -171,9 +184,11 @@ export class SupabaseRepository implements Repository {
         id: r.id,
         title: r.title,
         date: r.event_date,
+        openTime: trimTime(r.open_time),
         startTime: trimTime(r.start_time),
-        endTime: trimTime(r.end_time),
         venue: r.venue,
+        capacity: r.capacity,
+        sold: r.sold,
         description: r.description,
         status: r.status,
         createdAt: r.created_at,
@@ -182,49 +197,35 @@ export class SupabaseRepository implements Repository {
         eventId: r.event_id,
         bandId: r.band_id,
         order: r.performance_order,
+        confirmedAt: r.confirmed_at,
       })),
-      roles: unwrap(roles as Result<RoleRow[]>).map((r) => ({
+      slots: unwrap(slots as Result<SlotRow[]>).map((r) => ({
         id: r.id,
-        name: r.name,
-        description: r.description,
-        defaultSlots: r.default_slots,
+        eventId: r.event_id,
+        bandId: r.band_id,
+        part: r.part,
+        label: r.label,
         sortOrder: r.sort_order,
-      })),
-      eventRoleSlots: unwrap(slots as Result<EventRoleSlotRow[]>).map((r) => ({
-        eventId: r.event_id,
-        roleId: r.role_id,
-        slots: r.slots,
-      })),
-      assignments: unwrap(assignments as Result<AssignmentRow[]>).map((r) => ({
-        id: r.id,
-        eventId: r.event_id,
-        roleId: r.role_id,
         memberId: r.member_id,
-        source: r.source,
         locked: r.locked,
-        createdAt: r.created_at,
       })),
-      exclusions: unwrap(exclusions as Result<ExclusionRow[]>).map((r) => ({
-        eventId: r.event_id,
-        memberId: r.member_id,
-        reason: r.reason,
-      })),
-      runs: unwrap(runs as Result<RunRow[]>).map((r) => ({
+      activities: unwrap(activities as Result<ActivityRow[]>).map((r) => ({
         id: r.id,
-        executedBy: r.executed_by,
-        executedAt: r.executed_at,
-        eventIds: r.event_ids,
-        assignedCount: r.assigned_count,
-        mode: r.mode,
+        actorId: r.actor_id,
+        kind: r.kind,
+        text: r.text,
+        eventId: r.event_id,
+        bandId: r.band_id,
+        createdAt: r.created_at,
       })),
     }
   }
 
   // ---------------- メンバー（auth ユーザー操作は Edge Function 経由） ----------------
 
-  private async invokeAdmin(body: Record<string, unknown>): Promise<void> {
-    const { error } = await this.client.functions.invoke('admin-members', { body })
-    if (!error) return
+  private async invokeAdmin<T = unknown>(body: Record<string, unknown>): Promise<T> {
+    const { data, error } = await this.client.functions.invoke('admin-members', { body })
+    if (!error) return data as T
     if (error instanceof FunctionsHttpError) {
       let message = error.message
       try {
@@ -238,8 +239,17 @@ export class SupabaseRepository implements Repository {
     throw new Error(error.message)
   }
 
-  async createMember(input: MemberCreateInput): Promise<void> {
-    await this.invokeAdmin({ action: 'create', ...input })
+  async createMember(input: MemberCreateInput): Promise<string> {
+    const { bandIds, ...rest } = input
+    const { id } = await this.invokeAdmin<{ id: string }>({ action: 'create', ...rest })
+    if (bandIds.length > 0) {
+      check(
+        await this.client
+          .from('band_members')
+          .insert(bandIds.map((bandId) => ({ band_id: bandId, member_id: id, part: input.parts[0] ?? 'gt' }))),
+      )
+    }
+    return id
   }
 
   async updateMember(id: string, input: MemberUpdateInput): Promise<void> {
@@ -254,7 +264,8 @@ export class SupabaseRepository implements Repository {
         .from('profiles')
         .update({
           name: input.name,
-          part: input.part,
+          kana: input.kana,
+          parts: input.parts,
           note: input.note,
           app_role: input.appRole,
           active: input.active,
@@ -272,9 +283,10 @@ export class SupabaseRepository implements Repository {
   }
 
   async updateMyProfile(input: ProfileUpdateInput): Promise<void> {
-    const userId = await this.getCurrentUserId()
-    if (!userId) throw new Error('ログインしていません')
-    check(await this.client.from('profiles').update({ name: input.name, part: input.part }).eq('id', userId))
+    const userId = await this.requireUserId()
+    check(
+      await this.client.from('profiles').update({ name: input.name, kana: input.kana, parts: input.parts }).eq('id', userId),
+    )
   }
 
   // ---------------- バンド ----------------
@@ -289,19 +301,20 @@ export class SupabaseRepository implements Repository {
     )
   }
 
-  async createBand(input: BandInput): Promise<void> {
+  async createBand(input: BandInput): Promise<string> {
     const row = unwrap(
       (await this.client
         .from('bands')
-        .insert({ name: input.name, description: input.description })
+        .insert({ name: input.name, genre: input.genre, active: input.active })
         .select('id')
         .single()) as Result<{ id: string }>,
     )
     await this.replaceBandMembers(row.id, input.members)
+    return row.id
   }
 
   async updateBand(id: string, input: BandInput): Promise<void> {
-    check(await this.client.from('bands').update({ name: input.name, description: input.description }).eq('id', id))
+    check(await this.client.from('bands').update({ name: input.name, genre: input.genre, active: input.active }).eq('id', id))
     await this.replaceBandMembers(id, input.members)
   }
 
@@ -315,126 +328,123 @@ export class SupabaseRepository implements Repository {
     return {
       title: input.title,
       event_date: input.date,
+      open_time: input.openTime,
       start_time: input.startTime,
-      end_time: input.endTime,
       venue: input.venue,
+      capacity: input.capacity,
+      sold: input.sold,
       description: input.description,
       status: input.status,
     }
   }
 
-  private async replaceEventRelations(eventId: string, input: EventInput): Promise<void> {
-    check(await this.client.from('event_bands').delete().eq('event_id', eventId))
-    if (input.bandIds.length > 0) {
+  /** 出演バンドを入力に合わせる。外したバンドの枠は消え、新しいバンドには枠を作る */
+  private async syncEventBands(eventId: string, input: EventInput): Promise<void> {
+    const current = unwrap(
+      (await this.client.from('event_bands').select('band_id').eq('event_id', eventId)) as Result<{ band_id: string }[]>,
+    ).map((r) => r.band_id)
+    const wanted = input.bands.map((b) => b.bandId)
+    const removed = current.filter((id) => !wanted.includes(id))
+    if (removed.length > 0) {
+      check(await this.client.from('event_bands').delete().eq('event_id', eventId).in('band_id', removed))
+    }
+    if (input.bands.length > 0) {
       check(
-        await this.client.from('event_bands').insert(
-          input.bandIds.map((bandId, i) => ({ event_id: eventId, band_id: bandId, performance_order: i + 1 })),
+        await this.client.from('event_bands').upsert(
+          input.bands.map((b, i) => ({ event_id: eventId, band_id: b.bandId, performance_order: i + 1 })),
+          { onConflict: 'event_id,band_id' },
         ),
       )
     }
-    check(await this.client.from('event_role_slots').delete().eq('event_id', eventId))
-    if (input.roleSlots.length > 0) {
-      check(
-        await this.client
-          .from('event_role_slots')
-          .insert(input.roleSlots.map((s) => ({ event_id: eventId, role_id: s.roleId, slots: s.slots }))),
-      )
-    }
+    const added = input.bands.filter((b) => !current.includes(b.bandId))
+    const slotRows = added.flatMap((b) =>
+      b.slots.map((t, k) => ({ event_id: eventId, band_id: b.bandId, part: t.part, label: t.label, sort_order: k })),
+    )
+    if (slotRows.length > 0) check(await this.client.from('event_slots').insert(slotRows))
   }
 
   async createEvent(input: EventInput): Promise<string> {
     const row = unwrap(
-      (await this.client.from('events').insert(this.eventRow(input)).select('id').single()) as Result<{
-        id: string
-      }>,
+      (await this.client.from('events').insert(this.eventRow(input)).select('id').single()) as Result<{ id: string }>,
     )
-    await this.replaceEventRelations(row.id, input)
+    await this.syncEventBands(row.id, input)
     return row.id
   }
 
   async updateEvent(id: string, input: EventInput): Promise<void> {
     check(await this.client.from('events').update(this.eventRow(input)).eq('id', id))
-    await this.replaceEventRelations(id, input)
+    await this.syncEventBands(id, input)
   }
 
   async deleteEvent(id: string): Promise<void> {
     check(await this.client.from('events').delete().eq('id', id))
   }
 
-  async setEventRoleSlot(eventId: string, roleId: string, slots: number): Promise<void> {
-    check(
-      await this.client
-        .from('event_role_slots')
-        .upsert({ event_id: eventId, role_id: roleId, slots }, { onConflict: 'event_id,role_id' }),
-    )
-  }
+  // ---------------- 役割の割り振り ----------------
 
-  // ---------------- 役割マスタ ----------------
-
-  private roleRow(input: RoleInput) {
-    return {
-      name: input.name,
-      description: input.description,
-      default_slots: input.defaultSlots,
-      sort_order: input.sortOrder,
-    }
-  }
-
-  async createRole(input: RoleInput): Promise<void> {
-    check(await this.client.from('roles').insert(this.roleRow(input)))
-  }
-
-  async updateRole(id: string, input: RoleInput): Promise<void> {
-    check(await this.client.from('roles').update(this.roleRow(input)).eq('id', id))
-  }
-
-  async deleteRole(id: string): Promise<void> {
-    check(await this.client.from('roles').delete().eq('id', id))
-  }
-
-  // ---------------- 割り当て ----------------
-
-  async addAssignment(draft: AssignmentDraft): Promise<void> {
-    check(
-      await this.client.from('assignments').insert({
-        event_id: draft.eventId,
-        role_id: draft.roleId,
-        member_id: draft.memberId,
-        source: 'manual',
-        locked: true,
-      }),
-    )
-  }
-
-  async removeAssignment(id: string): Promise<void> {
-    check(await this.client.from('assignments').delete().eq('id', id))
-  }
-
-  async setAssignmentLocked(id: string, locked: boolean): Promise<void> {
-    check(await this.client.from('assignments').update({ locked }).eq('id', id))
-  }
-
-  async applyAutoAssignments(eventIds: string[], drafts: AssignmentDraft[], mode: AssignmentMode): Promise<number> {
-    const { data, error } = await this.client.rpc('apply_auto_assignments', {
-      p_event_ids: eventIds,
-      p_rows: drafts.map((d) => ({ event_id: d.eventId, role_id: d.roleId, member_id: d.memberId })),
-      p_mode: mode,
+  async saveAssignment(eventId: string, bandId: string, slots: SlotAssignment[]): Promise<void> {
+    const { error } = await this.client.rpc('save_assignment', {
+      p_event_id: eventId,
+      p_band_id: bandId,
+      p_slots: slots.map((s) => ({ id: s.id, member_id: s.memberId, locked: s.locked })),
     })
     if (error) throw new Error(error.message)
-    return Number(data ?? 0)
   }
 
-  // ---------------- 参加不可 ----------------
+  async addSlot(eventId: string, bandId: string, part: Part, label: string): Promise<void> {
+    const rows = unwrap(
+      (await this.client
+        .from('event_slots')
+        .select('sort_order')
+        .eq('event_id', eventId)
+        .eq('band_id', bandId)) as Result<{ sort_order: number }[]>,
+    )
+    const order = Math.max(-1, ...rows.map((r) => r.sort_order)) + 1
+    check(await this.client.from('event_slots').insert({ event_id: eventId, band_id: bandId, part, label, sort_order: order }))
+    check(
+      await this.client.from('event_bands').update({ confirmed_at: null }).eq('event_id', eventId).eq('band_id', bandId),
+    )
+  }
 
-  async setExclusion(eventId: string, memberId: string, excluded: boolean, reason?: string | null): Promise<void> {
-    if (excluded) {
-      check(
-        await this.client
-          .from('event_exclusions')
-          .upsert({ event_id: eventId, member_id: memberId, reason: reason ?? null }, { onConflict: 'event_id,member_id' }),
-      )
-    } else {
-      check(await this.client.from('event_exclusions').delete().eq('event_id', eventId).eq('member_id', memberId))
-    }
+  async removeSlot(slotId: string): Promise<void> {
+    const slot = unwrap(
+      (await this.client.from('event_slots').select('event_id, band_id').eq('id', slotId).single()) as Result<{
+        event_id: string
+        band_id: string
+      }>,
+    )
+    check(await this.client.from('event_slots').delete().eq('id', slotId))
+    check(
+      await this.client
+        .from('event_bands')
+        .update({ confirmed_at: null })
+        .eq('event_id', slot.event_id)
+        .eq('band_id', slot.band_id),
+    )
+  }
+
+  async confirmAssignment(eventId: string, bandId: string): Promise<void> {
+    check(
+      await this.client
+        .from('event_bands')
+        .update({ confirmed_at: new Date().toISOString() })
+        .eq('event_id', eventId)
+        .eq('band_id', bandId),
+    )
+  }
+
+  // ---------------- 活動ログ ----------------
+
+  async logActivity(input: ActivityInput): Promise<void> {
+    const actorId = await this.requireUserId()
+    check(
+      await this.client.from('activity_logs').insert({
+        actor_id: actorId,
+        kind: input.kind,
+        text: input.text,
+        event_id: input.eventId ?? null,
+        band_id: input.bandId ?? null,
+      }),
+    )
   }
 }
