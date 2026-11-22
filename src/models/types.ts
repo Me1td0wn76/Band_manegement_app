@@ -1,20 +1,27 @@
 // ドメインモデル定義（MVC の Model 層）
 
 export type AppRole = 'admin' | 'member'
-export type EventStatus = 'scheduled' | 'completed' | 'cancelled'
-export type AssignmentSource = 'auto' | 'manual'
-export type AssignmentMode = 'regenerate' | 'fill'
+
+/** 担当パート（Vo / Gt / Ba / Dr / Key） */
+export type Part = 'vo' | 'gt' | 'ba' | 'dr' | 'key'
+export const PARTS: Part[] = ['vo', 'gt', 'ba', 'dr', 'key']
+
+/** 保存されるイベントの状態。本番当日は表示上 LIVE になる */
+export type EventStatus = 'draft' | 'open' | 'confirmed' | 'done' | 'cancelled'
+export const EVENT_STATUSES: EventStatus[] = ['draft', 'open', 'confirmed', 'done', 'cancelled']
 
 export interface Member {
   id: string
   name: string
+  /** ローマ字表記 */
+  kana: string | null
   email: string
-  /** 担当楽器・パート（Vo / Gt / Ba / Dr / Key など） */
-  part: string | null
+  parts: Part[]
+  /** 管理者のみ閲覧するメモ */
   note: string | null
   appRole: AppRole
   active: boolean
-  /** 初期パスワードのままの場合 true（初回ログイン時に変更を求める） */
+  /** 初期登録（パスワードの再設定・パート登録）が済んでいない＝招待中 */
   mustChangePassword: boolean
   createdAt: string
 }
@@ -22,14 +29,16 @@ export interface Member {
 export interface Band {
   id: string
   name: string
-  description: string | null
+  genre: string | null
+  /** false なら休止中（割り振りの対象外） */
+  active: boolean
   createdAt: string
 }
 
 export interface BandMember {
   bandId: string
   memberId: string
-  part: string
+  part: Part
 }
 
 export interface BandEvent {
@@ -37,62 +46,51 @@ export interface BandEvent {
   title: string
   /** YYYY-MM-DD */
   date: string
-  /** HH:MM */
+  /** 開場 HH:MM */
+  openTime: string | null
+  /** 開演 HH:MM */
   startTime: string | null
-  endTime: string | null
   venue: string | null
+  /** 定員 */
+  capacity: number | null
+  /** 集客（予約・販売数） */
+  sold: number
   description: string | null
   status: EventStatus
   createdAt: string
 }
 
+/** イベントへのバンドの出演。割り振りの確定状態を持つ */
 export interface EventBand {
   eventId: string
   bandId: string
   order: number
+  confirmedAt: string | null
 }
 
-/** 役割マスタ（PA・照明・受付など） */
-export interface Role {
+/** 役割の枠（イベント × バンド × パート）。memberId が割り当て */
+export interface Slot {
   id: string
-  name: string
-  description: string | null
-  defaultSlots: number
+  eventId: string
+  bandId: string
+  part: Part
+  label: string
   sortOrder: number
-}
-
-/** イベントごとの役割の必要人数 */
-export interface EventRoleSlot {
-  eventId: string
-  roleId: string
-  slots: number
-}
-
-export interface Assignment {
-  id: string
-  eventId: string
-  roleId: string
-  memberId: string
-  source: AssignmentSource
-  /** true の割り当ては自動割り振りの再実行でも保持される */
+  memberId: string | null
+  /** true の枠は自動割り振りで変更しない */
   locked: boolean
-  createdAt: string
 }
 
-/** 参加不可（自動割り振りの対象外） */
-export interface Exclusion {
-  eventId: string
-  memberId: string
-  reason: string | null
-}
+export type ActivityKind = 'event' | 'member' | 'band' | 'assign' | 'onboarding' | 'profile'
 
-export interface AssignmentRun {
+export interface Activity {
   id: string
-  executedBy: string | null
-  executedAt: string
-  eventIds: string[]
-  assignedCount: number
-  mode: AssignmentMode
+  actorId: string | null
+  kind: ActivityKind
+  text: string
+  eventId: string | null
+  bandId: string | null
+  createdAt: string
 }
 
 export interface AppSnapshot {
@@ -101,66 +99,80 @@ export interface AppSnapshot {
   bandMembers: BandMember[]
   events: BandEvent[]
   eventBands: EventBand[]
-  roles: Role[]
-  eventRoleSlots: EventRoleSlot[]
-  assignments: Assignment[]
-  exclusions: Exclusion[]
-  runs: AssignmentRun[]
+  slots: Slot[]
+  activities: Activity[]
 }
 
 // ---- 入力型 ----
 
 export interface MemberCreateInput {
   name: string
+  kana: string | null
   email: string
   /** 初期パスワード */
   password: string
-  part: string | null
-  note: string | null
+  parts: Part[]
   appRole: AppRole
+  note: string | null
+  bandIds: string[]
 }
 
 export interface MemberUpdateInput {
   name: string
+  kana: string | null
   email: string
-  part: string | null
-  note: string | null
+  parts: Part[]
   appRole: AppRole
   active: boolean
+  note: string | null
 }
 
 export interface ProfileUpdateInput {
   name: string
-  part: string | null
+  kana: string | null
+  parts: Part[]
+}
+
+export interface OnboardingInput {
+  password: string
+  parts: Part[]
 }
 
 export interface BandInput {
   name: string
-  description: string | null
-  members: { memberId: string; part: string }[]
+  genre: string | null
+  active: boolean
+  members: { memberId: string; part: Part }[]
+}
+
+export interface SlotTemplate {
+  part: Part
+  label: string
 }
 
 export interface EventInput {
   title: string
   date: string
+  openTime: string | null
   startTime: string | null
-  endTime: string | null
   venue: string | null
+  capacity: number | null
+  sold: number
   description: string | null
   status: EventStatus
-  bandIds: string[]
-  roleSlots: { roleId: string; slots: number }[]
+  /** 出演順。新しく追加されたバンドには slots の枠を作る */
+  bands: { bandId: string; slots: SlotTemplate[] }[]
 }
 
-export interface RoleInput {
-  name: string
-  description: string | null
-  defaultSlots: number
-  sortOrder: number
+export interface SlotAssignment {
+  id: string
+  memberId: string | null
+  locked: boolean
 }
 
-export interface AssignmentDraft {
-  eventId: string
-  roleId: string
-  memberId: string
+export interface ActivityInput {
+  kind: ActivityKind
+  text: string
+  eventId?: string | null
+  bandId?: string | null
 }

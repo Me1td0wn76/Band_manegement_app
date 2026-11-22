@@ -1,13 +1,14 @@
 import type {
+  ActivityInput,
   AppSnapshot,
-  AssignmentDraft,
-  AssignmentMode,
   BandInput,
   EventInput,
   MemberCreateInput,
   MemberUpdateInput,
+  OnboardingInput,
+  Part,
   ProfileUpdateInput,
-  RoleInput,
+  SlotAssignment,
 } from '../types'
 
 export type RepositoryMode = 'supabase' | 'demo'
@@ -24,19 +25,21 @@ export interface Repository {
   signIn(email: string, password: string): Promise<void>
   signOut(): Promise<void>
   changePassword(newPassword: string): Promise<void>
+  /** 初回ログイン時の初期登録（パスワードの再設定とパートの登録） */
+  completeOnboarding(input: OnboardingInput): Promise<void>
 
   // ---- 読み込み ----
   loadAll(): Promise<AppSnapshot>
 
   // ---- メンバー ----
-  createMember(input: MemberCreateInput): Promise<void>
+  createMember(input: MemberCreateInput): Promise<string>
   updateMember(id: string, input: MemberUpdateInput): Promise<void>
   resetMemberPassword(id: string, password: string): Promise<void>
   deleteMember(id: string): Promise<void>
   updateMyProfile(input: ProfileUpdateInput): Promise<void>
 
   // ---- バンド ----
-  createBand(input: BandInput): Promise<void>
+  createBand(input: BandInput): Promise<string>
   updateBand(id: string, input: BandInput): Promise<void>
   deleteBand(id: string): Promise<void>
 
@@ -44,20 +47,14 @@ export interface Repository {
   createEvent(input: EventInput): Promise<string>
   updateEvent(id: string, input: EventInput): Promise<void>
   deleteEvent(id: string): Promise<void>
-  setEventRoleSlot(eventId: string, roleId: string, slots: number): Promise<void>
 
-  // ---- 役割マスタ ----
-  createRole(input: RoleInput): Promise<void>
-  updateRole(id: string, input: RoleInput): Promise<void>
-  deleteRole(id: string): Promise<void>
+  // ---- 役割の割り振り ----
+  /** 枠の割り当て・ロックを保存する（確定は解除される） */
+  saveAssignment(eventId: string, bandId: string, slots: SlotAssignment[]): Promise<void>
+  addSlot(eventId: string, bandId: string, part: Part, label: string): Promise<void>
+  removeSlot(slotId: string): Promise<void>
+  confirmAssignment(eventId: string, bandId: string): Promise<void>
 
-  // ---- 割り当て ----
-  addAssignment(draft: AssignmentDraft): Promise<void>
-  removeAssignment(id: string): Promise<void>
-  setAssignmentLocked(id: string, locked: boolean): Promise<void>
-  /** 自動割り振り結果を保存。regenerate はロックされていない既存割り当てを置き換える */
-  applyAutoAssignments(eventIds: string[], drafts: AssignmentDraft[], mode: AssignmentMode): Promise<number>
-
-  // ---- 参加不可 ----
-  setExclusion(eventId: string, memberId: string, excluded: boolean, reason?: string | null): Promise<void>
+  // ---- 活動ログ ----
+  logActivity(input: ActivityInput): Promise<void>
 }
