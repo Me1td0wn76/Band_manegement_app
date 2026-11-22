@@ -7,7 +7,6 @@ interface AuthValue {
   state: AuthState
   signIn(email: string, password: string): Promise<void>
   signOut(): Promise<void>
-  changePassword(newPassword: string): Promise<void>
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
@@ -45,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     state,
     signIn: (email, password) => repository.signIn(email, password),
     signOut: () => repository.signOut(),
-    changePassword: (pw) => repository.changePassword(pw),
   }
 
   return <AuthContext value={value}>{children}</AuthContext>

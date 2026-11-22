@@ -128,7 +128,7 @@ a { color: inherit; text-decoration: none; }
 .ev-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 .ev-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .ev-search { width: 320px; max-width: 100%; }
-.rb-table-wrap { overflow-x: auto; }
+.rb-table-wrap { overflow-x: auto; position: relative; }
 @media (max-width: 760px) {
   .ev-form { grid-template-columns: minmax(0, 1fr); }
   .ev-span2, .ev-span3 { grid-column: auto; }
@@ -175,6 +175,9 @@ a { color: inherit; text-decoration: none; }
 .bd-sel { flex: 1; min-width: 0; height: 36px; padding: 0 8px; border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface-raised); color: var(--ink); font: 500 13px/1 var(--font-sans); }
 .bd-sel--part { flex: 0 0 116px; }
 .bd-sel:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus); }
+@media (max-width: 1180px) {
+  .bd-layout { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 640px) {
   .bd-grid { grid-template-columns: minmax(0, 1fr); }
   .bd-sel--part { flex-basis: 96px; }
@@ -226,8 +229,11 @@ a { color: inherit; text-decoration: none; }
   .mv-grid, .pm-grid, .ac-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  .mv-gigs li { flex-wrap: wrap; }
-  .mv-gig__r { justify-items: start; }
+  .mv-gigs li { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px 12px; }
+  .mv-gigs li > .rb-datestub { grid-row: span 3; }
+  .mv-gig__r { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-items: start; }
+  .mv-gigs li > .rb-status { justify-self: start; }
+  .mv-perm th, .mv-perm td { padding: 8px 6px; }
 }
 
 /* ---------- ログイン（ScreenLogin） */
@@ -305,3 +311,18 @@ a { color: inherit; text-decoration: none; }
 .rb-shell__content > *, .db-section > *, .mb-main > *, .bd-main > *, .rb-topbar > * { min-width: 0; }
 .bd-main > .rb-tabs { max-width: 100%; }
 .rb-ticker { min-width: 0; max-width: 100%; }
+
+/* ---------- ステージ図（スマートフォン） */
+@media (max-width: 640px) {
+  .rb-stage { min-height: 420px; }
+  .rb-slot { width: 92px; }
+  .rb-slot__btn { padding-left: 4px; padding-right: 4px; }
+  .rb-slot__role { font-size: 10px; letter-spacing: .06em; }
+  .rb-slot__who { height: 32px; }
+  .rb-slot__who .rb-avatar { --rb-av: 30px !important; }
+  .rb-slot__name { font-size: 12px; }
+  .rb-slot.is-empty .rb-slot__name { font-size: 11px; }
+  .rb-slot__flag { font-size: 10px; }
+  .rb-picker { width: min(260px, calc(100vw - 48px)); margin-left: calc(min(260px, calc(100vw - 48px)) / -2); }
+  .rb-assign__actions { flex-wrap: wrap; }
+}
